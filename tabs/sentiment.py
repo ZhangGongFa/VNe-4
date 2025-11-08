@@ -1,149 +1,94 @@
-# tabs/sentiment.py
-import streamlit as st
-import pandas as pd
-import plotly.graph_objects as go
-from plotly.subplots import make_subplots
+"""Sentiment tab renderer.
 
-def render(fin_df: pd.DataFrame):
+The Sentiment tab visualises market sentiment metrics associated with
+the selected ticker.  It attempts to use sentiment‑related columns
+present in the dataset (e.g. ``Sentiment``, ``Sentiment Change`` and
+``News Shock``).  If these columns are missing, the tab computes
+simple proxies from available financial data.  The tab displays a
+line chart of sentiment over time, bar charts of sentiment changes
+and news shocks, and summary statistics.
+"""
+
+import numpy as np
+import pandas as pd
+import streamlit as st
+import plotly.express as px
+import plotly.graph_objects as go
+
+
+def _get_column(df: pd.DataFrame, candidates: list, default: pd.Series = None) -> pd.Series:
+    """Return the first matching column among a list of candidates.
+
+    If none of the candidate columns exist, ``default`` is returned.  If
+    no default is provided, an empty Series is returned.
     """
-    Render Sentiment Analysis tab.
-    Displays news sentiment and market perception data.
+    for c in candidates:
+        if c in df.columns:
+            return df[c]
+    return default if default is not None else pd.Series(dtype=float)
+
+
+def render(fin_df):
+    """Render the Sentiment tab.
+
+    Parameters
+    ----------
+    fin_df : pandas.DataFrame
+        Filtered dataframe containing rows for the selected ticker.
     """
-    st.header("📰 Sentiment Analysis")
-    st.markdown("Analysis of news sentiment and market perception related to the selected stock.")
-    
-    if fin_df.empty:
-        st.warning("No data available for sentiment analysis.")
+    if fin_df is None or fin_df.empty:
+        st.info("No sentiment data available for this ticker.")
         return
-    
-    # Find sentiment-related columns
-    sentiment_keywords = ["sentiment", "tone", "news", "score", "positive", "negative", "neutral"]
-    cand = [c for c in fin_df.columns if any(k in c.lower() for k in sentiment_keywords)]
-    
-    if not cand:
-        st.info("📊 No sentiment columns found in the dataset.")
-        st.markdown("""
-        **Expected columns:**
-        - Sentiment scores (positive/negative/neutral)
-        - News tone indicators
-        - Market sentiment metrics
-        
-        Please ensure your CSV file contains sentiment-related data columns.
-        """)
-        return
-    
-    # Prepare data
-    if "display_year" in fin_df.columns:
-        year_col = "display_year"
-    elif "Year" in fin_df.columns:
-        year_col = "Year"
-    elif "year" in fin_df.columns:
-        year_col = "year"
-    else:
-        st.error("No year column found in data.")
-        return
-    
-    # Create view dataframe
-    view_cols = [year_col] + cand
-    view = fin_df[view_cols].drop_duplicates().copy()
-    
-    if view.empty:
-        st.warning("No sentiment data available after processing.")
-        return
-    
-    # Sort by year
-    try:
-        view = view.sort_values(year_col)
-    except:
-        pass
-    
-    # Display metrics in columns
-    st.subheader("Sentiment Metrics Overview")
-    
-    # Show latest sentiment scores if available
-    if len(view) > 0:
-        latest_row = view.iloc[-1]
-        cols = st.columns(min(len(cand), 4))
-        
-        for i, col_name in enumerate(cand[:4]):
-            with cols[i]:
-                try:
-                    value = latest_row[col_name]
-                    if pd.notna(value):
-                        st.metric(
-                            label=col_name.replace("_", " ").title(),
-                            value=f"{float(value):.2f}" if isinstance(value, (int, float)) else str(value)
-                        )
-                    else:
-                        st.metric(label=col_name.replace("_", " ").title(), value="N/A")
-                except:
-                    st.metric(label=col_name.replace("_", " ").title(), value="—")
-    
-    st.markdown("---")
-    
-    # Visualize sentiment trends
-    st.subheader("Sentiment Trends Over Time")
-    
-    try:
-        # Create plotly chart
-        fig = make_subplots(
-            rows=min(len(cand), 3), 
-            cols=1,
-            subplot_titles=[c.replace("_", " ").title() for c in cand[:3]],
-            vertical_spacing=0.1
-        )
-        
-        for i, col_name in enumerate(cand[:3], 1):
-            # Convert to numeric if possible
-            y_data = pd.to_numeric(view[col_name], errors='coerce')
-            
-            fig.add_trace(
-                go.Scatter(
-                    x=view[year_col],
-                    y=y_data,
-                    mode='lines+markers',
-                    name=col_name.replace("_", " ").title(),
-                    line=dict(width=3),
-                    marker=dict(size=8)
-                ),
-                row=i, col=1
-            )
-        
-        fig.update_layout(
-            height=300 * min(len(cand), 3),
-            showlegend=False,
-            hovermode='x unified'
-        )
-        
-        fig.update_xaxes(title_text="Year", row=min(len(cand), 3), col=1)
-        
-        st.plotly_chart(fig, use_container_width=True)
-    except Exception as e:
-        st.warning(f"Unable to create visualization: {str(e)}")
-    
-    st.markdown("---")
-    
-    # Display full data table
-    st.subheader("Detailed Sentiment Data")
-    
-    # Rename columns for better display
-    display_view = view.copy()
-    display_view = display_view.rename(columns={
-        year_col: "Year",
-        **{c: c.replace("_", " ").title() for c in cand}
-    })
-    
-    st.dataframe(
-        display_view.set_index("Year"),
-        use_container_width=True,
-        height=400
-    )
-    
-    # Download button
-    csv = display_view.to_csv(index=False).encode('utf-8')
-    st.download_button(
-        label="📥 Download Sentiment Data as CSV",
-        data=csv,
-        file_name=f"sentiment_analysis.csv",
-        mime="text/csv",
-    )
+
+    st.subheader("Market Sentiment Analysis")
+
+    # Derive year for x axis
+    years = fin_df.get('Year') if 'Year' in fin_df.columns else fin_df.get('display_year')
+    years = years.astype(str) if years is not None else pd.Series([])
+
+    # Extract sentiment columns if present
+    sentiment_series = _get_column(fin_df, ['Sentiment', 'sentiment'])
+    sentiment_change = _get_column(fin_df, ['Sentiment Change', 'sentiment change', 'sentiment_change'])
+    news_shock = _get_column(fin_df, ['News Shock', 'news shock', 'news_shock'])
+
+    # If no sentiment column, derive a simple proxy: normalised net profit margin
+    if sentiment_series is None or sentiment_series.empty:
+        if 'Net Profit For the Year' in fin_df.columns and 'Net Sales' in fin_df.columns:
+            tmp = (fin_df['Net Profit For the Year'].astype(float) / fin_df['Net Sales'].astype(float)).replace([np.inf, -np.inf], np.nan)
+            tmp = (tmp - tmp.min()) / (tmp.max() - tmp.min() + 1e-9)
+            sentiment_series = tmp.rename("Sentiment")
+        else:
+            sentiment_series = pd.Series(np.zeros(len(fin_df)), name="Sentiment")
+
+    # Compute changes if not provided
+    if sentiment_change is None or sentiment_change.empty:
+        sentiment_change = sentiment_series.diff().fillna(0.0).rename("Sentiment Change")
+    if news_shock is None or news_shock.empty:
+        # Proxy for news shock: absolute change scaled
+        news_shock = sentiment_change.abs().rename("News Shock")
+
+    # Build line chart for sentiment
+    line_fig = go.Figure()
+    line_fig.add_trace(go.Scatter(x=years, y=sentiment_series, mode='lines+markers', name='Sentiment'))
+    line_fig.update_layout(title='Sentiment over Time', xaxis_title='Year', yaxis_title='Sentiment Score', height=360)
+    # Build bar chart for changes and news shock
+    bar_fig = go.Figure()
+    bar_fig.add_trace(go.Bar(x=years, y=sentiment_change, name='Sentiment Change'))
+    bar_fig.add_trace(go.Bar(x=years, y=news_shock, name='News Shock'))
+    bar_fig.update_layout(title='Sentiment Change & News Shock', xaxis_title='Year', yaxis_title='Value', barmode='group', height=360)
+
+    # Summary statistics
+    avg_sent = float(sentiment_series.mean()) if not sentiment_series.empty else 0.0
+    avg_change = float(sentiment_change.mean()) if not sentiment_change.empty else 0.0
+    avg_shock = float(news_shock.mean()) if not news_shock.empty else 0.0
+
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        st.metric("Average Sentiment", f"{avg_sent:.3f}")
+    with col2:
+        st.metric("Average Sentiment Change", f"{avg_change:.3f}")
+    with col3:
+        st.metric("Average News Shock", f"{avg_shock:.3f}")
+
+    st.plotly_chart(line_fig, use_container_width=True)
+    st.plotly_chart(bar_fig, use_container_width=True)

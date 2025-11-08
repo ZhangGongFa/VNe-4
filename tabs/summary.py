@@ -1,254 +1,257 @@
-# tabs/summary.py
-import streamlit as st
+"""Summary tab renderer.
+
+This module implements the Summary tab, which consolidates company
+financial overview, default probability scoring and broader default
+statistics.  It leverages the ``analysis_utils`` package to load
+the LightGBM model, engineer features, compute PD values and
+generate distribution plots.  The layout closely follows the
+dashboard provided in the PD‑monotonic‑constraints project.
+"""
+
+import os
+import numpy as np
 import pandas as pd
+import streamlit as st
 import plotly.graph_objects as go
-from plotly.subplots import make_subplots
 
-def _pickcol(df, cands):
-    """Pick first matching column from candidates"""
-    lower = {c.lower(): c for c in df.columns}
-    for c in cands:
-        if c in df.columns: return c
-        if c.lower() in lower: return lower[c.lower()]
-    return None
+from ..utils.io import read_csv_smart
+from ..analysis_utils import (
+    clean_and_log_transform,
+    preprocess_and_create_features,
+    select_features_for_model,
+    load_lgbm_model,
+    model_feature_names,
+    predict_pd,
+    explain_shap,
+    align_features_to_model,
+    load_thresholds,
+    thresholds_for_sector,
+    classify_pd,
+    default_distribution_by_year,
+    default_distribution_by_sector,
+)
 
-def render(fin_df: pd.DataFrame):
+
+def render(fin_df):
+    """Render the Summary tab for the current ticker.
+
+    Parameters
+    ----------
+    fin_df : pandas.DataFrame
+        Filtered dataframe containing rows for the selected ticker.
     """
-    Render Risk Summary tab.
-    Displays comprehensive risk indicators and default probability metrics.
-    """
-    st.header("📈 Risk Summary & Analysis")
-    st.markdown("Comprehensive view of key financial metrics and risk indicators.")
-    
-    if fin_df.empty:
-        st.warning("No data available for risk summary.")
+    if fin_df is None or fin_df.empty:
+        st.info("No data available for summary.")
         return
-    
-    # Find year column
-    ycol = _pickcol(fin_df, ["display_year", "year", "Year"])
-    if ycol is None:
-        st.error("❌ No year column found in dataset.")
-        return
-    
-    # Get unique years data
-    show = fin_df.drop_duplicates(subset=[ycol]).copy()
-    
-    # Define core financial metrics to display
-    core_metrics = [
-        ("Net Revenue", ["Net Revenue", "Revenue", "Doanh thu thuần"]),
-        ("Total Assets", ["Total Assets", "Tổng tài sản"]),
-        ("Equity", ["Equity", "Owner's Equity", "Vốn chủ sở hữu"]),
-        ("Total Debt", ["Total Debt", "Total interest bearing debt"]),
-        ("Short-Term Debt", ["Short-Term Loans", "Short term loans"]),
-        ("Long-Term Debt", ["Long-Term Loans", "Long term loans"]),
-        ("Net Income", ["Net profit after tax", "Profit after tax", "Lợi nhuận sau thuế"]),
-        ("EBIT", ["EBIT", "Operating profit"]),
+
+    # Determine absolute paths to data and model within the package
+    base_dir = os.path.dirname(os.path.dirname(__file__))  # vne_app
+    data_path = os.path.join(base_dir, 'data', 'bctc_final.csv')
+    model_path = os.path.join(base_dir, 'models', 'lgbm_model.pkl')
+    threshold_path = os.path.join(base_dir, 'models', 'threshold.json')
+
+    # Load and preprocess the full dataset
+    try:
+        raw_df = pd.read_csv(data_path)
+    except Exception:
+        # Fallback: attempt to read using utils.io
+        try:
+            raw_df = read_csv_smart(data_path)
+        except Exception:
+            st.error("Unable to load the default dataset for summary.")
+            return
+    # Clean and engineer features
+    cleaned_df = clean_and_log_transform(raw_df)
+    feats_df = preprocess_and_create_features(cleaned_df)
+
+    # Load model and thresholds
+    model = load_lgbm_model(model_path)
+    thresholds = load_thresholds(threshold_path)
+
+    # Determine candidate feature list and final features
+    candidate_features = [
+        'Current_Ratio', 'Quick_Ratio', 'Working_Capital_to_Total_Assets',
+        'Debt_to_Assets', 'Debt_to_Equity', 'Equity_to_Liabilities',
+        'Long_Term_Debt_to_Assets', 'Receivables_Turnover', 'Inventory_Turnover',
+        'Asset_Turnover', 'ROA', 'ROE', 'EBIT_to_Assets',
+        'Operating_Income_to_Debt', 'Net_Profit_Margin', 'Gross_Margin',
+        'Interest_Coverage', 'EBITDA_to_Interest', 'Total_Debt_to_EBITDA',
+        'Net_Debt_to_Equity', 'LowRiskFlag', 'OCF_Deficit_2of3',
+        'Revenue_CAGR_3Y', 'PAT_Std_3Y', 'Sector_Default_Rate'
     ]
-    
-    # Find available columns
-    cols = []
-    col_mapping = {}
-    for display_name, candidates in core_metrics:
-        found_col = _pickcol(show, candidates)
-        if found_col:
-            cols.append(found_col)
-            col_mapping[found_col] = display_name
-    
-    if not cols:
-        st.info("""
-        📊 **No core financial metrics found.**
-        
-        Expected columns include:
-        - Net Revenue / Revenue
-        - Total Assets
-        - Equity
-        - Total Debt
-        - Short-Term Loans
-        - Long-Term Loans
-        
-        Please ensure your CSV contains these financial indicators.
-        """)
+    model_feats = model_feature_names(model)
+    final_features = select_features_for_model(feats_df, candidate_features, model_feats)
+
+    # Identify ticker and available years from feats_df
+    current_ticker = fin_df['Ticker'].iloc[0]
+    avail_years = feats_df.loc[feats_df['Ticker'] == current_ticker, 'Year'].dropna().astype(int).unique().tolist()
+    avail_years.sort()
+    if not avail_years:
+        st.info("No engineered features available for this ticker.")
         return
-    
-    # Prepare display dataframe
-    display_df = show[[ycol] + cols].copy()
-    
-    # Rename columns for better display
-    display_df = display_df.rename(columns={
-        ycol: "Year",
-        **col_mapping
-    })
-    
-    # Sort by year
-    try:
-        display_df = display_df.sort_values("Year")
-    except:
-        pass
-    
-    # Calculate risk indicators if possible
-    st.subheader("🎯 Key Risk Indicators")
-    
-    if len(display_df) > 0:
-        latest = display_df.iloc[-1]
-        
-        col1, col2, col3, col4 = st.columns(4)
-        
-        with col1:
-            if "Total Debt" in display_df.columns and "Equity" in display_df.columns:
+    # Year selection
+    default_idx = len(avail_years) - 1
+    year = st.selectbox("Select Year", options=avail_years, index=default_idx, key=f"summary_year_{current_ticker}")
+
+    # Extract model and raw rows for the selected ticker & year
+    row_model = feats_df[(feats_df['Ticker'] == current_ticker) & (feats_df['Year'] == year)]
+    if row_model.empty:
+        st.warning("No record for the selected ticker & year.")
+        return
+    row_model = row_model.iloc[0]
+    row_raw = raw_df[(raw_df['Ticker'] == current_ticker) & (raw_df['Year'] == year)]
+    row_raw = row_raw.iloc[0] if not row_raw.empty else pd.Series(dtype='object')
+
+    # Extract sector and exchange
+    sector_raw = str(row_model.get('Sector', '')) if pd.notna(row_model.get('Sector', '')) else ''
+    exchange = str(row_model.get('Exchange', '')).upper() if pd.notna(row_model.get('Exchange', '')) else ''
+
+    # Extract key raw metrics
+    def get_raw_val(sr: pd.Series, cols, default=np.nan):
+        for c in cols:
+            if c in sr.index:
                 try:
-                    debt = float(latest["Total Debt"])
-                    equity = float(latest["Equity"])
-                    debt_to_equity = debt / equity if equity != 0 else 0
-                    st.metric(
-                        "Debt-to-Equity Ratio",
-                        f"{debt_to_equity:.2f}",
-                        help="Lower is better. <1 is generally healthy."
-                    )
-                except:
-                    st.metric("Debt-to-Equity Ratio", "N/A")
-            else:
-                st.metric("Debt-to-Equity Ratio", "N/A")
-        
-        with col2:
-            if "Total Debt" in display_df.columns and "Total Assets" in display_df.columns:
-                try:
-                    debt = float(latest["Total Debt"])
-                    assets = float(latest["Total Assets"])
-                    debt_ratio = debt / assets if assets != 0 else 0
-                    st.metric(
-                        "Debt Ratio",
-                        f"{debt_ratio:.2%}",
-                        help="Percentage of assets financed by debt."
-                    )
-                except:
-                    st.metric("Debt Ratio", "N/A")
-            else:
-                st.metric("Debt Ratio", "N/A")
-        
-        with col3:
-            if "Net Income" in display_df.columns and "Net Revenue" in display_df.columns:
-                try:
-                    net_income = float(latest["Net Income"])
-                    revenue = float(latest["Net Revenue"])
-                    margin = net_income / revenue if revenue != 0 else 0
-                    st.metric(
-                        "Net Profit Margin",
-                        f"{margin:.2%}",
-                        help="Profitability indicator."
-                    )
-                except:
-                    st.metric("Net Profit Margin", "N/A")
-            else:
-                st.metric("Net Profit Margin", "N/A")
-        
-        with col4:
-            if "Net Income" in display_df.columns and "Equity" in display_df.columns:
-                try:
-                    net_income = float(latest["Net Income"])
-                    equity = float(latest["Equity"])
-                    roe = net_income / equity if equity != 0 else 0
-                    st.metric(
-                        "ROE",
-                        f"{roe:.2%}",
-                        help="Return on Equity - efficiency of capital use."
-                    )
-                except:
-                    st.metric("ROE", "N/A")
-            else:
-                st.metric("ROE", "N/A")
-    
-    st.markdown("---")
-    
-    # Trend visualization
-    st.subheader("📊 Financial Trends")
-    
-    try:
-        # Select numeric columns for visualization
-        numeric_cols = []
-        for col in display_df.columns:
-            if col != "Year":
-                if pd.api.types.is_numeric_dtype(display_df[col]):
-                    numeric_cols.append(col)
-        
-        if numeric_cols:
-            # Create subplots
-            num_charts = min(len(numeric_cols), 4)
-            fig = make_subplots(
-                rows=2, 
-                cols=2,
-                subplot_titles=numeric_cols[:4],
-                vertical_spacing=0.12,
-                horizontal_spacing=0.1
+                    return float(str(sr[c]).replace(',', ''))
+                except Exception:
+                    try:
+                        return float(sr[c])
+                    except Exception:
+                        return default
+        return default
+
+    assets_raw = get_raw_val(row_raw, ["TOTAL ASSETS (Bn. VND)", 'Total_Assets'])
+    equity_raw = get_raw_val(row_raw, ["OWNER'S EQUITY(Bn.VND)", 'Equity'])
+    current_liab = get_raw_val(row_raw, ['Current liabilities (Bn. VND)', 'Current_Liabilities'], 0.0)
+    long_liab = get_raw_val(row_raw, ['Long-term liabilities (Bn. VND)', 'Long_Term_Liabilities'], 0.0)
+    short_bor = get_raw_val(row_raw, ['Short-term borrowings (Bn. VND)', 'Short_Term_Borrowings'], 0.0)
+    revenue_raw = get_raw_val(row_raw, ['Net Sales', 'Revenue'])
+    net_profit_raw = get_raw_val(row_raw, ['Net Profit For the Year', 'Net_Profit'])
+    operating_profit_raw = get_raw_val(row_raw, ['Operating Profit/Loss', 'Operating_Profit'])
+    interest_exp_raw = get_raw_val(row_raw, ['Interest Expenses', 'Interest_Expenses'], 0.0)
+    cash_raw = get_raw_val(row_raw, ['Cash and cash equivalents (Bn. VND)', 'Cash'], 0.0)
+    receivables_raw = get_raw_val(row_raw, ['Accounts receivable (Bn. VND)', 'Receivables'], 0.0)
+    inventories_raw = get_raw_val(row_raw, ['Net Inventories', 'Inventories'], 0.0)
+    current_assets_raw = get_raw_val(row_raw, ['CURRENT ASSETS (Bn. VND)', 'Current_Assets'], 0.0)
+    total_liab_raw = (current_liab or 0.0) + (long_liab or 0.0)
+    debt_raw = get_raw_val(row_raw, ['Total_Debt']) if 'Total_Debt' in row_raw.index else (short_bor or 0.0) + (long_liab or 0.0)
+
+    # Compute ratio metrics
+    def safe_div(a, b):
+        try:
+            a_f, b_f = float(a or 0.0), float(b or 0.0)
+            return a_f / b_f if b_f not in [0, None, np.nan] and b_f != 0.0 else np.nan
+        except Exception:
+            return np.nan
+
+    roa = safe_div(net_profit_raw, assets_raw)
+    roe = safe_div(net_profit_raw, equity_raw)
+    dta = safe_div(total_liab_raw, assets_raw)
+    dte = safe_div(debt_raw, equity_raw)
+    current_ratio = safe_div(current_assets_raw, current_liab)
+    quick_ratio = safe_div((cash_raw or 0.0) + (receivables_raw or 0.0), current_liab)
+
+    # Sidebar / header showing company profile & ratios
+    st.subheader(f"Default Risk Summary: {current_ticker} — {year}")
+    col_prof, col_figs = st.columns([1, 2])
+    with col_prof:
+        st.markdown(f"**Sector:** {sector_raw or '-'}  \n**Exchange:** {exchange or '-'}")
+        st.markdown(
+            f"<div class='metric-card'>"
+            f"Total Assets: <b>{assets_raw:,.2f}</b><br>"
+            f"Equity: <b>{equity_raw:,.2f}</b><br>"
+            f"Debt: <b>{debt_raw:,.2f}</b><br>"
+            f"Revenue: <b>{revenue_raw:,.2f}</b><br>"
+            f"Net Profit: <b>{net_profit_raw:,.2f}</b>"
+            "</div>",
+            unsafe_allow_html=True,
+        )
+        st.markdown(
+            f"<div class='metric-card'>"
+            f"ROA: <b>{roa:.2%}</b><br>"
+            f"ROE: <b>{roe:.2%}</b><br>"
+            f"Debt/Assets: <b>{dta:.2%}</b><br>"
+            f"Debt/Equity: <b>{dte:.2%}</b><br>"
+            f"Current Ratio: <b>{current_ratio:.2f}</b><br>"
+            f"Quick Ratio: <b>{quick_ratio:.2f}</b>"
+            "</div>",
+            unsafe_allow_html=True,
+        )
+    # Company overview charts
+    with col_figs:
+        # Historical revenue and net profit series for this ticker
+        hist = raw_df[raw_df['Ticker'] == current_ticker].sort_values('Year')
+        series_df = hist[[
+            'Year', 'Net Sales', 'Net Profit For the Year'
+        ]].rename(columns={'Net Sales': 'Revenue', 'Net Profit For the Year': 'Net_Profit'}).dropna(how='any')
+        if not series_df.empty:
+            fig_rev = go.Figure()
+            fig_rev.add_trace(go.Bar(x=series_df['Year'], y=series_df['Revenue'], name='Revenue'))
+            fig_rev.add_trace(go.Scatter(x=series_df['Year'], y=series_df['Net_Profit'], name='Net Profit', mode='lines+markers', yaxis='y2'))
+            fig_rev.update_layout(
+                title="Revenue & Net Profit (multi-year)",
+                yaxis=dict(title="Revenue"),
+                yaxis2=dict(title="Net Profit", overlaying='y', side='right'),
+                legend=dict(orientation='h', yanchor='bottom', y=-0.25, xanchor='center', x=0.5),
+                height=380
             )
-            
-            positions = [(1,1), (1,2), (2,1), (2,2)]
-            
-            for i, col in enumerate(numeric_cols[:4]):
-                row, col_pos = positions[i]
-                
-                y_data = pd.to_numeric(display_df[col], errors='coerce')
-                
-                fig.add_trace(
-                    go.Scatter(
-                        x=display_df["Year"],
-                        y=y_data,
-                        mode='lines+markers',
-                        name=col,
-                        line=dict(width=3),
-                        marker=dict(size=10),
-                        fill='tonexty' if i == 0 else None,
-                    ),
-                    row=row, col=col_pos
-                )
-            
-            fig.update_layout(
-                height=600,
-                showlegend=False,
-                hovermode='x unified'
-            )
-            
-            st.plotly_chart(fig, use_container_width=True)
-    except Exception as e:
-        st.warning(f"Unable to create trend visualization: {str(e)}")
-    
-    st.markdown("---")
-    
-    # Display full data table
-    st.subheader("📋 Detailed Financial Summary")
-    
-    st.dataframe(
-        display_df.set_index("Year"),
-        use_container_width=True,
-        height=400
-    )
-    
-    # Additional risk assessment
-    st.markdown("---")
-    st.subheader("⚠️ Risk Assessment")
-    
-    col1, col2 = st.columns(2)
-    
-    with col1:
-        st.markdown("**Liquidity Risk**")
-        if "Short-Term Debt" in display_df.columns:
-            st.info("Evaluate ability to meet short-term obligations.")
-            # Add your liquidity analysis logic here
+            st.plotly_chart(fig_rev, use_container_width=True)
         else:
-            st.warning("Short-term debt data not available.")
-    
-    with col2:
-        st.markdown("**Solvency Risk**")
-        if "Total Debt" in display_df.columns and "Total Assets" in display_df.columns:
-            st.info("Evaluate long-term financial stability.")
-            # Add your solvency analysis logic here
-        else:
-            st.warning("Solvency metrics not fully available.")
-    
-    # Download button
-    csv = display_df.to_csv(index=False).encode('utf-8')
-    st.download_button(
-        label="📥 Download Summary Report as CSV",
-        data=csv,
-        file_name=f"risk_summary.csv",
-        mime="text/csv",
+            st.info("No historical series for this company.")
+        # Capital structure pie chart
+        fig_cap = go.Figure(data=[go.Pie(labels=['Total Debt', 'Equity'], values=[debt_raw, equity_raw], hole=0.5)])
+        fig_cap.update_layout(title="Capital Structure", height=380)
+        st.plotly_chart(fig_cap, use_container_width=True)
+
+    # Compute PD
+    X_row = pd.DataFrame([row_model[final_features].values], columns=final_features)
+    # Align features to model
+    X_row = align_features_to_model(X_row, model)
+    pd_value = predict_pd(model, X_row)
+    th = thresholds_for_sector(thresholds, sector_raw)
+    pd_class = classify_pd(pd_value, th)
+
+    # Display PD and classification
+    st.markdown("## Default Probability")
+    st.markdown(
+        f"Predicted PD: **{pd_value:.2%}**  \nClassification: **{pd_class}** (Low if < {th['low']:.0%}, Medium if < {th['medium']:.0%}, High otherwise)"
     )
+
+    # SHAP explanation
+    shap_df = explain_shap(model, X_row, top_n=10)
+    if not shap_df.empty:
+        st.markdown("### Top Feature Contributions (SHAP)")
+        # Convert shap values to bar chart
+        shap_fig = go.Figure()
+        shap_fig.add_trace(go.Bar(
+            x=shap_df['shap'],
+            y=shap_df['feature'],
+            orientation='h',
+            marker=dict(color=np.sign(shap_df['shap']), colorscale='RdBu'),
+        ))
+        shap_fig.update_layout(
+            title="SHAP Feature Contributions",
+            xaxis_title="SHAP Value",
+            yaxis_title="Feature",
+            height=360
+        )
+        st.plotly_chart(shap_fig, use_container_width=True)
+
+    # Default distribution section
+    st.markdown("## Default Distribution Overview")
+    pie_fig, bar_year, table_year = default_distribution_by_year(feats_df)
+    col_y1, col_y2 = st.columns([2, 1])
+    with col_y1:
+        st.plotly_chart(bar_year, use_container_width=True)
+    with col_y2:
+        st.plotly_chart(pie_fig, use_container_width=True)
+    st.plotly_chart(table_year, use_container_width=True)
+
+    bar_sector, pie_sector, bar_rate_sector, table_sector = default_distribution_by_sector(feats_df)
+    st.markdown("### By Sector")
+    col_s1, col_s2 = st.columns([2, 1])
+    with col_s1:
+        st.plotly_chart(bar_sector, use_container_width=True)
+    with col_s2:
+        st.plotly_chart(pie_sector, use_container_width=True)
+    st.plotly_chart(bar_rate_sector, use_container_width=True)
+    st.plotly_chart(table_sector, use_container_width=True)
