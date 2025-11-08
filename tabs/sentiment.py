@@ -1,326 +1,226 @@
 """
-Sentiment Analysis Tab
-Displays news sentiment and market perception analysis
+Sentiment Tab - Extended with multilingual support
+Displays news sentiment analysis and market perception
 """
 
 import numpy as np
 import pandas as pd
 import streamlit as st
 import plotly.graph_objects as go
-from datetime import datetime, timedelta
+from utils_new.lang import get_text
 
-
-def render(feats_df: pd.DataFrame, raw_df: pd.DataFrame, ticker: str, year: int, sector: str):
+def render(feats_df: pd.DataFrame, raw_df: pd.DataFrame, ticker: str, year: int, 
+           model, thresholds, sector: str, final_features: list):
     """
-    Render the Sentiment Analysis tab with news and market perception
+    Render the Sentiment tab with extended content
     """
+    lang = st.session_state.get('current_lang', 'vi')
     
-    st.subheader("📰 Phân Tích Tình Cảm & Tin Tức")
+    st.subheader(get_text("sentiment_header", lang))
     
-    # Create tabs for sentiment analysis
+    # Get selected data
+    row_model = feats_df[(feats_df["Ticker"].astype(str)==ticker) & (feats_df["Year"]==year)]
+    if row_model.empty:
+        st.warning(get_text("warning_no_data", lang))
+        return
+    
+    # Create tabs
     tab1, tab2, tab3 = st.tabs([
-        "Tin Tức Gần Đây",
-        "Phân Tích Tình Cảm",
-        "Đánh Giá Chung"
+        get_text("sentiment_tab_news", lang),
+        get_text("sentiment_tab_analysis", lang),
+        get_text("sentiment_tab_assessment", lang)
     ])
     
     # ==================== TAB 1: RECENT NEWS ====================
     with tab1:
-        st.markdown("### Tin Tức Gần Đây (Recent News)")
-        st.markdown(f"**Công ty:** {ticker} | **Ngành:** {sector}")
+        st.markdown(f"### {get_text('news_title', lang)}")
         
         # Sample news data
-        news_data = [
-            {
-                "Ngày": "2024-11-08",
-                "Tiêu Đề": "Công ty công bố kết quả quý 3 vượt kỳ vọng",
-                "Nguồn": "VNExpress",
-                "Tình Cảm": "Tích Cực",
-                "Điểm": 0.85
-            },
-            {
-                "Ngày": "2024-11-05",
-                "Tiêu Đề": "Ký kết hợp đồng cung cấp với khách hàng lớn",
-                "Nguồn": "Cafef",
-                "Tình Cảm": "Tích Cực",
-                "Điểm": 0.78
-            },
-            {
-                "Ngày": "2024-10-28",
-                "Tiêu Đề": "Cảnh báo: Giá nguyên liệu tăng có thể ảnh hưởng lợi nhuận",
-                "Nguồn": "Tintuc.vn",
-                "Tình Cảm": "Tiêu Cực",
-                "Điểm": -0.45
-            },
-            {
-                "Ngày": "2024-10-20",
-                "Tiêu Đề": "Công ty được nâng hạng tín dụng bởi Moody's",
-                "Nguồn": "Bloomberg",
-                "Tình Cảm": "Tích Cực",
-                "Điểm": 0.82
-            },
-            {
-                "Ngày": "2024-10-15",
-                "Tiêu Đề": "Tuyên bố chia cổ tức bằng tiền mặt 10%",
-                "Nguồn": "HOSE",
-                "Tình Cảm": "Tích Cực",
-                "Điểm": 0.88
-            },
-            {
-                "Ngày": "2024-10-08",
-                "Tiêu Đề": "Phát hành cổ phiếu thưởng 1:2",
-                "Nguồn": "HNX",
-                "Tình Cảm": "Trung Lập",
-                "Điểm": 0.15
-            },
-            {
-                "Ngày": "2024-09-30",
-                "Tiêu Đề": "Hoàn thành dự án mở rộng nhà máy",
-                "Nguồn": "Cafef",
-                "Tình Cảm": "Tích Cực",
-                "Điểm": 0.75
-            },
-            {
-                "Ngày": "2024-09-20",
-                "Tiêu Đề": "Báo cáo bán hàng nửa đầu năm tăng 8.5%",
-                "Nguồn": "VNExpress",
-                "Tình Cảm": "Tích Cực",
-                "Điểm": 0.72
-            }
-        ]
+        news_data = {
+            "Ngày" if lang == "vi" else "Date": [
+                "2024-11-05", "2024-11-03", "2024-10-28", "2024-10-20", "2024-10-15"
+            ],
+            "Tiêu Đề" if lang == "vi" else "Title": [
+                "Công ty công bố kết quả Q3 vượt kỳ vọng" if lang == "vi" else "Company announces Q3 results beating expectations",
+                "Ký hợp đồng cung cấp với khách hàng mới" if lang == "vi" else "Signed supply contract with new customer",
+                "Kế hoạch mở rộng sản xuất được phê duyệt" if lang == "vi" else "Production expansion plan approved",
+                "Tăng giá cổ phiếu do kết quả kinh doanh tốt" if lang == "vi" else "Stock price increase due to strong business results",
+                "Phát hành cổ phiếu thưởng cho cổ đông" if lang == "vi" else "Dividend stock issuance to shareholders"
+            ],
+            "Điểm Tình Cảm" if lang == "vi" else "Sentiment Score": [
+                0.85, 0.72, 0.68, 0.75, 0.60
+            ],
+            "Tình Cảm" if lang == "vi" else "Sentiment": [
+                "Rất Tích Cực" if lang == "vi" else "Very Positive",
+                "Tích Cực" if lang == "vi" else "Positive",
+                "Tích Cực" if lang == "vi" else "Positive",
+                "Tích Cực" if lang == "vi" else "Positive",
+                "Trung Lập" if lang == "vi" else "Neutral"
+            ]
+        }
         
         news_df = pd.DataFrame(news_data)
+        st.dataframe(news_df, use_container_width=True, hide_index=True, key="sentiment_news_table")
         
-        # Color sentiment
-        def color_sentiment(val):
-            if val == "Tích Cực":
-                return "🟢 Tích Cực"
-            elif val == "Tiêu Cực":
-                return "🔴 Tiêu Cực"
-            else:
-                return "🟡 Trung Lập"
-        
-        news_df["Tình Cảm"] = news_df["Tình Cảm"].apply(color_sentiment)
-        
-        st.dataframe(news_df, use_container_width=True, hide_index=True)
-        
-        # News sentiment distribution
-        col1, col2 = st.columns(2)
-        
-        with col1:
-            sentiment_counts = {
-                "Tích Cực": 5,
-                "Tiêu Cực": 1,
-                "Trung Lập": 2
-            }
-            
-            fig = go.Figure(data=[go.Pie(
-                labels=list(sentiment_counts.keys()),
-                values=list(sentiment_counts.values()),
-                marker=dict(colors=["rgba(34, 197, 94, 0.8)", "rgba(239, 68, 68, 0.8)", "rgba(156, 163, 175, 0.8)"])
-            )])
-            fig.update_layout(
-                title="Phân Bố Tình Cảm Tin Tức",
-                height=350
-            )
-            st.plotly_chart(fig, use_container_width=True)
-        
-        with col2:
-            # Sentiment trend over time
-            dates = pd.to_datetime([d["Ngày"] for d in news_data]).sort_values()
-            sentiment_scores = [0.85, 0.78, -0.45, 0.82, 0.88, 0.15, 0.75, 0.72]
-            sentiment_scores_sorted = [x for _, x in sorted(zip(dates, sentiment_scores))]
-            
-            fig = go.Figure()
-            fig.add_trace(go.Scatter(
-                x=sorted(dates),
-                y=sentiment_scores_sorted,
-                mode='lines+markers',
-                name='Điểm Tình Cảm',
-                line=dict(color='rgba(10, 102, 194, 0.8)', width=2),
-                marker=dict(size=6),
-                fill='tozeroy'
-            ))
-            fig.add_hline(y=0, line_dash="dash", line_color="gray")
-            fig.update_layout(
-                title="Xu Hướng Tình Cảm Theo Thời Gian",
-                xaxis_title="Ngày",
-                yaxis_title="Điểm Tình Cảm",
-                height=350
-            )
-            st.plotly_chart(fig, use_container_width=True)
+        # Sentiment trend chart
+        fig = go.Figure()
+        fig.add_trace(go.Scatter(
+            x=news_df["Ngày" if lang == "vi" else "Date"],
+            y=news_df["Điểm Tình Cảm" if lang == "vi" else "Sentiment Score"],
+            mode='lines+markers',
+            name="Điểm Tình Cảm" if lang == "vi" else "Sentiment Score",
+            line=dict(color='rgba(10, 102, 194, 0.8)', width=3),
+            marker=dict(size=10),
+            fill='tozeroy'
+        ))
+        fig.update_layout(
+            title="Xu Hướng Tình Cảm Tin Tức" if lang == "vi" else "News Sentiment Trend",
+            xaxis_title="Ngày" if lang == "vi" else "Date",
+            yaxis_title="Điểm Tình Cảm" if lang == "vi" else "Sentiment Score",
+            height=350,
+            yaxis=dict(range=[0, 1])
+        )
+        st.plotly_chart(fig, use_container_width=True, key="sentiment_trend_chart")
     
     # ==================== TAB 2: SENTIMENT ANALYSIS ====================
     with tab2:
-        st.markdown("### Phân Tích Tình Cảm Chi Tiết (Detailed Sentiment Analysis)")
-        st.markdown(f"**Công ty:** {ticker} | **Ngành:** {sector}")
+        st.markdown(f"### {get_text('sentiment_analysis_title', lang)}")
         
-        col1, col2, col3 = st.columns(3)
+        col1, col2 = st.columns(2)
         
         with col1:
-            st.metric("Điểm Tình Cảm Trung Bình", "0.58", "+0.12")
+            st.markdown("**" + ("Phân Loại Tình Cảm" if lang == "vi" else "Sentiment Distribution") + "**")
+            sentiment_dist = {
+                "Tình Cảm" if lang == "vi" else "Sentiment": [
+                    "Rất Tích Cực" if lang == "vi" else "Very Positive",
+                    "Tích Cực" if lang == "vi" else "Positive",
+                    "Trung Lập" if lang == "vi" else "Neutral",
+                    "Tiêu Cực" if lang == "vi" else "Negative",
+                    "Rất Tiêu Cực" if lang == "vi" else "Very Negative"
+                ],
+                "Số Lượng" if lang == "vi" else "Count": [12, 28, 15, 8, 2]
+            }
+            
+            fig_pie = go.Figure(data=[go.Pie(
+                labels=sentiment_dist["Tình Cảm" if lang == "vi" else "Sentiment"],
+                values=sentiment_dist["Số Lượng" if lang == "vi" else "Count"],
+                marker=dict(colors=['#22C55E', '#3B82F6', '#F59E0B', '#EF4444', '#991B1B'])
+            )])
+            fig_pie.update_layout(height=350)
+            st.plotly_chart(fig_pie, use_container_width=True, key="sentiment_dist_chart")
         
         with col2:
-            st.metric("Tin Tức Tích Cực", "5", "+1")
-        
-        with col3:
-            st.metric("Tin Tức Tiêu Cực", "1", "-1")
-        
-        st.markdown("---")
-        
-        # Sentiment by category
-        st.markdown("#### Tình Cảm Theo Danh Mục")
-        
-        sentiment_by_category = {
-            "Danh Mục": [
-                "Kết Quả Kinh Doanh",
-                "Hợp Đồng & Đối Tác",
-                "Tài Chính & Nợ",
-                "Quản Lý & Nhân Sự",
-                "Sản Phẩm & Dịch Vụ",
-                "Rủi Ro & Thách Thức"
-            ],
-            "Điểm Tình Cảm": [0.82, 0.78, 0.65, 0.45, 0.70, -0.35],
-            "Số Tin": [3, 2, 2, 1, 2, 1],
-            "Đánh Giá": ["Tích Cực", "Tích Cực", "Trung Lập", "Trung Lập", "Tích Cực", "Tiêu Cực"]
-        }
-        
-        category_df = pd.DataFrame(sentiment_by_category)
-        st.dataframe(category_df, use_container_width=True, hide_index=True)
-        
-        # Horizontal bar chart
-        fig = go.Figure(data=[
-            go.Bar(
-                y=sentiment_by_category["Danh Mục"],
-                x=sentiment_by_category["Điểm Tình Cảm"],
+            st.markdown("**" + ("Các Yếu Tố Chính" if lang == "vi" else "Key Factors") + "**")
+            factors_data = {
+                "Yếu Tố" if lang == "vi" else "Factor": [
+                    "Kết Quả Kinh Doanh" if lang == "vi" else "Business Results",
+                    "Phát Triển Sản Phẩm" if lang == "vi" else "Product Development",
+                    "Tình Hình Ngành" if lang == "vi" else "Industry Situation",
+                    "Quản Lý Rủi Ro" if lang == "vi" else "Risk Management",
+                    "Triển Vọng Tương Lai" if lang == "vi" else "Future Outlook"
+                ],
+                "Tác Động (%)" if lang == "vi" else "Impact (%)": [35, 25, 20, 12, 8]
+            }
+            
+            fig_bar = go.Figure(data=[go.Bar(
+                y=factors_data["Yếu Tố" if lang == "vi" else "Factor"],
+                x=factors_data["Tác Động (%)" if lang == "vi" else "Impact (%)"],
                 orientation='h',
-                marker=dict(
-                    color=sentiment_by_category["Điểm Tình Cảm"],
-                    colorscale='RdYlGn',
-                    cmin=-1,
-                    cmax=1
-                )
+                marker_color='rgba(10, 102, 194, 0.8)',
+                text=[f"{v}%" for v in factors_data["Tác Động (%)" if lang == "vi" else "Impact (%)"]],
+                textposition='outside'
+            )])
+            fig_bar.update_layout(
+                height=350,
+                xaxis_title="Tác Động (%)" if lang == "vi" else "Impact (%)"
             )
-        ])
-        fig.update_layout(
-            title="Tình Cảm Theo Danh Mục",
-            xaxis_title="Điểm Tình Cảm",
-            height=350
-        )
-        st.plotly_chart(fig, use_container_width=True)
+            st.plotly_chart(fig_bar, use_container_width=True, key="sentiment_factors_chart")
         
-        st.markdown("---")
-        
-        # Sentiment drivers
-        st.markdown("#### Những Yếu Tố Chính Ảnh Hưởng Đến Tình Cảm")
-        
-        drivers = {
-            "Yếu Tố": [
-                "Tăng Trưởng Doanh Thu",
-                "Lợi Nhuận Tăng",
-                "Chia Cổ Tức",
-                "Nâng Hạng Tín Dụng",
-                "Giá Nguyên Liệu Tăng",
-                "Cạnh Tranh Tăng"
+        # Detailed sentiment analysis table
+        st.markdown("**" + ("Chi Tiết Phân Tích Tình Cảm" if lang == "vi" else "Detailed Sentiment Analysis") + "**")
+        analysis_data = {
+            "Danh Mục" if lang == "vi" else "Category": [
+                "Tài Chính" if lang == "vi" else "Financial",
+                "Hoạt Động" if lang == "vi" else "Operations",
+                "Thị Trường" if lang == "vi" else "Market",
+                "Quản Lý" if lang == "vi" else "Management",
+                "Rủi Ro" if lang == "vi" else "Risk"
             ],
-            "Tác Động": ["Tích Cực", "Tích Cực", "Tích Cực", "Tích Cực", "Tiêu Cực", "Tiêu Cực"],
-            "Mức Độ": ["Cao", "Cao", "Trung Bình", "Trung Bình", "Trung Bình", "Thấp"]
+            "Điểm Trung Bình" if lang == "vi" else "Average Score": [0.78, 0.72, 0.65, 0.70, 0.55],
+            "Xu Hướng" if lang == "vi" else "Trend": [
+                "↑ Tăng" if lang == "vi" else "↑ Up",
+                "→ Ổn Định" if lang == "vi" else "→ Stable",
+                "↓ Giảm" if lang == "vi" else "↓ Down",
+                "↑ Tăng" if lang == "vi" else "↑ Up",
+                "↓ Giảm" if lang == "vi" else "↓ Down"
+            ]
         }
-        
-        drivers_df = pd.DataFrame(drivers)
-        st.dataframe(drivers_df, use_container_width=True, hide_index=True)
+        analysis_df = pd.DataFrame(analysis_data)
+        st.dataframe(analysis_df, use_container_width=True, hide_index=True, key="sentiment_analysis_table")
     
     # ==================== TAB 3: OVERALL ASSESSMENT ====================
     with tab3:
-        st.markdown("### Đánh Giá Chung Tình Hình Cổ Phiếu (Overall Assessment)")
-        st.markdown(f"**Công ty:** {ticker} | **Ngành:** {sector} | **Ngày:** {datetime.now().strftime('%d/%m/%Y')}")
+        st.markdown(f"### {get_text('sentiment_assessment_title', lang)}")
         
-        # Overall sentiment score
-        st.markdown("#### Điểm Đánh Giá Chung")
+        if lang == "vi":
+            st.markdown("""
+            **Đánh Giá Tổng Thể:**
+            
+            Tình cảm thị trường đối với công ty hiện tại là **Tích Cực** với điểm trung bình **0.70/1.0**.
+            
+            **Điểm Mạnh:**
+            - Kết quả kinh doanh Q3 vượt kỳ vọng, tăng niềm tin nhà đầu tư
+            - Ký hợp đồng cung cấp với khách hàng mới mở rộng cơ hội phát triển
+            - Kế hoạch mở rộng sản xuất được phê duyệt, cho thấy tầm nhìn dài hạn
+            - Chính sách cổ tức tốt duy trì sự hỗ trợ từ cổ đông
+            
+            **Điểm Yếu:**
+            - Một số lo ngại về tình hình ngành trong bối cảnh kinh tế vĩ mô
+            - Rủi ro từ biến động giá nguyên liệu đầu vào
+            - Cạnh tranh tăng từ các đối thủ mới
+            
+            **Khuyến Nghị:**
+            - Tiếp tục cải thiện kết quả kinh doanh để duy trì niềm tin nhà đầu tư
+            - Tăng cường quản lý rủi ro và minh bạch hóa thông tin
+            - Phát triển các sản phẩm mới để tăng cạnh tranh
+            - Duy trì chính sách cổ tức hấp dẫn
+            """)
+        else:
+            st.markdown("""
+            **Overall Assessment:**
+            
+            Market sentiment towards the company is currently **Positive** with an average score of **0.70/1.0**.
+            
+            **Strengths:**
+            - Q3 business results exceeded expectations, boosting investor confidence
+            - Signed supply contract with new customer expands growth opportunities
+            - Production expansion plan approved demonstrates long-term vision
+            - Good dividend policy maintains shareholder support
+            
+            **Weaknesses:**
+            - Some concerns about industry situation in current macroeconomic context
+            - Risk from volatility in raw material prices
+            - Increasing competition from new competitors
+            
+            **Recommendations:**
+            - Continue improving business results to maintain investor confidence
+            - Strengthen risk management and information transparency
+            - Develop new products to increase competitiveness
+            - Maintain attractive dividend policy
+            """)
         
+        # Key metrics summary
+        st.markdown("**" + ("Chỉ Số Chính" if lang == "vi" else "Key Metrics") + "**")
         col1, col2, col3, col4 = st.columns(4)
         
         with col1:
-            st.metric("Tình Cảm Thị Trường", "Tích Cực", "↑")
+            st.metric("Điểm Tình Cảm Trung Bình" if lang == "vi" else "Avg Sentiment Score", "0.70", "+0.05")
         
         with col2:
-            st.metric("Xu Hướng Tin Tức", "Tích Cực", "↑")
+            st.metric("Tin Tức Tích Cực (%)" if lang == "vi" else "Positive News (%)", "80%", "+5%")
         
         with col3:
-            st.metric("Nhận Thức Nhà Đầu Tư", "Tích Cực", "→")
+            st.metric("Độ Tin Cậy" if lang == "vi" else "Confidence", "Cao" if lang == "vi" else "High", "Ổn Định" if lang == "vi" else "Stable")
         
         with col4:
-            st.metric("Triển Vọng 6 Tháng", "Tích Cực", "↑")
-        
-        st.markdown("---")
-        
-        st.markdown("#### Tóm Tắt Đánh Giá")
-        
-        st.success("""
-        **Mẫu Nội Dung - Đánh Giá Chung:**
-        
-        **Tình Cảm Thị Trường: TÍCH CỰC**
-        
-        Dựa trên phân tích 8 tin tức gần đây, tình cảm thị trường đối với cổ phiếu {ticker} là **tích cực**.
-        
-        **Điểm Mạnh:**
-        - Kết quả kinh doanh vượt kỳ vọng, doanh thu và lợi nhuận tăng trưởng ổn định
-        - Nhận được nâng hạng tín dụng từ các tổ chức quốc tế
-        - Tuyên bố chia cổ tức hấp dẫn, thể hiện sự tự tin của quản lý
-        - Ký kết các hợp đồng lớn với khách hàng chiến lược
-        - Hoàn thành các dự án mở rộng sản xuất
-        
-        **Điểm Yếu:**
-        - Giá nguyên liệu đầu vào có xu hướng tăng, có thể ảnh hưởng đến biên lợi nhuận
-        - Cạnh tranh trong ngành tăng lên
-        
-        **Triển Vọng:**
-        Nhà đầu tư có xu hướng tích cực đối với cổ phiếu này. Dự kiến giá cổ phiếu sẽ tiếp tục được hỗ trợ 
-        bởi các tin tức tích cực về kinh doanh và các sự kiện công ty trong 6 tháng tới.
-        """)
-        
-        st.markdown("---")
-        
-        st.markdown("#### Các Rủi Ro Cần Theo Dõi")
-        
-        st.warning("""
-        **Mẫu Nội Dung - Rủi Ro:**
-        
-        1. **Rủi Ro Kinh Tế Vĩ Mô**
-           - Biến động lãi suất có thể ảnh hưởng đến chi phí vay nợ
-           - Tình hình kinh tế toàn cầu có thể ảnh hưởng đến nhu cầu sản phẩm
-        
-        2. **Rủi Ro Ngành**
-           - Cạnh tranh tăng từ các đối thủ mới
-           - Thay đổi quy định về môi trường và lao động
-        
-        3. **Rủi Ro Công Ty**
-           - Phụ thuộc vào một số khách hàng lớn
-           - Rủi Ro tỷ giá từ hoạt động xuất nhập khẩu
-        
-        4. **Rủi Ro Thị Trường**
-           - Biến động giá cổ phiếu có thể tăng nếu có tin tức tiêu cực
-        """)
-        
-        st.markdown("---")
-        
-        st.markdown("#### Khuyến Nghị Theo Dõi")
-        
-        st.info("""
-        **Mẫu Nội Dung - Khuyến Nghị:**
-        
-        **Khuyến Nghị:** NẮNG GIỮ / MUA THÊM
-        
-        **Mục Tiêu Giá:** 85,000 - 95,000 VND (12 tháng)
-        
-        **Lý Do:**
-        - Tăng trưởng kinh doanh ổn định
-        - Định giá hợp lý so với đối thủ cạnh tranh
-        - Tình cảm thị trường tích cực
-        - Cổ tức hấp dẫn
-        
-        **Điểm Cảnh Báo:**
-        - Theo dõi xu hướng giá nguyên liệu
-        - Chú ý đến các thay đổi trong danh sách khách hàng lớn
-        - Quan sát tình hình cạnh tranh
-        """)
+            st.metric("Xu Hướng" if lang == "vi" else "Trend", "Tăng" if lang == "vi" else "Up", "+2.5%")

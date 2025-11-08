@@ -3,6 +3,8 @@ Language configuration for the Streamlit application.
 Contains all text strings in Vietnamese (vi) and English (en).
 """
 
+import streamlit as st
+
 LANG_VI = "vi"
 LANG_EN = "en"
 
@@ -57,6 +59,36 @@ TEXTS = {
         LANG_VI: "Không có dữ liệu cho Ticker & Năm đã chọn.",
         LANG_EN: "No record for selected Ticker & Year."
     },
+    "error_tab_render": {
+        LANG_VI: "Lỗi khi hiển thị tab",
+        LANG_EN: "Error rendering tab"
+    },
+    
+    # --- Sidebar Metrics (from original app.py) ---
+    "profile_header": {
+        LANG_VI: "Hồ Sơ Công Ty",
+        LANG_EN: "Company Profile"
+    },
+    "metric_total_assets": {
+        LANG_VI: "Tổng Tài Sản",
+        LANG_EN: "Total Assets"
+    },
+    "metric_equity": {
+        LANG_VI: "Vốn Chủ Sở Hữu",
+        LANG_EN: "Equity"
+    },
+    "metric_debt": {
+        LANG_VI: "Tổng Nợ",
+        LANG_EN: "Total Debt"
+    },
+    "metric_revenue": {
+        LANG_VI: "Doanh Thu",
+        LANG_EN: "Revenue"
+    },
+    "metric_net_profit": {
+        LANG_VI: "Lợi Nhuận Ròng",
+        LANG_EN: "Net Profit"
+    },
     "metric_roa": {
         LANG_VI: "ROA",
         LANG_EN: "ROA"
@@ -66,12 +98,12 @@ TEXTS = {
         LANG_EN: "ROE"
     },
     "metric_dta": {
-        LANG_VI: "Tỷ Lệ Nợ/Tài Sản",
-        LANG_EN: "Debt-to-Assets"
+        LANG_VI: "Nợ/Tài Sản",
+        LANG_EN: "Debt/Assets"
     },
-    "error_tab_render": {
-        LANG_VI: "Lỗi khi hiển thị tab",
-        LANG_EN: "Error rendering tab"
+    "metric_dte": {
+        LANG_VI: "Nợ/Vốn Chủ",
+        LANG_EN: "Debt/Equity"
     },
     
     # --- Finance Tab ---
@@ -96,12 +128,28 @@ TEXTS = {
         LANG_EN: "Financial Indicators"
     },
     "finance_tab_notes": {
-        LANG_VI: "Ghi Chú",
-        LANG_EN: "Notes"
+        LANG_VI: "Ghi Chú & Đánh Giá",
+        LANG_EN: "Notes & Assessment"
     },
     "income_statement_title": {
         LANG_VI: "Báo Cáo Thu Nhập (Income Statement)",
         LANG_EN: "Income Statement"
+    },
+    "balance_sheet_title": {
+        LANG_VI: "Bảng Cân Đối Kế Toán (Balance Sheet)",
+        LANG_EN: "Balance Sheet"
+    },
+    "cashflow_statement_title": {
+        LANG_VI: "Báo Cáo Lưu Chuyển Tiền Tệ (Cash Flow Statement)",
+        LANG_EN: "Cash Flow Statement"
+    },
+    "financial_indicators_title": {
+        LANG_VI: "Các Chỉ Số Tài Chính Chính",
+        LANG_EN: "Key Financial Indicators"
+    },
+    "notes_assessment_title": {
+        LANG_VI: "Ghi Chú và Đánh Giá Tổng Quan",
+        LANG_EN: "Notes and Overall Assessment"
     },
     "income_year": {
         LANG_VI: "Năm",
@@ -133,155 +181,151 @@ TEXTS = {
         LANG_VI: "Đánh Giá Chung",
         LANG_EN: "Overall Assessment"
     },
+    "news_title": {
+        LANG_VI: "Tin Tức Liên Quan Đến Mã Cổ Phiếu",
+        LANG_EN: "News Related to Stock Ticker"
+    },
+    "sentiment_analysis_title": {
+        LANG_VI: "Phân Tích Tình Cảm Tin Tức",
+        LANG_EN: "News Sentiment Analysis"
+    },
+    "sentiment_assessment_title": {
+        LANG_VI: "Đánh Giá Tổng Thể Tình Hình Cổ Phiếu",
+        LANG_EN: "Overall Stock Situation Assessment"
+    },
     
-    # --- Summary Tab ---
+    # --- Summary Tab (Integrated from original app.py) ---
     "summary_header": {
         LANG_VI: "📈 Tóm Tắt & Đánh Giá Rủi Ro",
         LANG_EN: "📈 Summary & Risk Assessment"
     },
-    "summary_tab_dashboard": {
-        LANG_VI: "Dashboard Tóm Tắt",
-        LANG_EN: "Summary Dashboard"
+    "summary_section_overview": {
+        LANG_VI: "A. Tổng Quan Tài Chính Công Ty",
+        LANG_EN: "A. Company Financial Overview"
     },
-    "summary_tab_risk": {
-        LANG_VI: "Đánh Giá Rủi Ro",
-        LANG_EN: "Risk Assessment"
+    "summary_chart_rev_title": {
+        LANG_VI: "Xu Hướng Doanh Thu & Lợi Nhuận (Nhiều năm)",
+        LANG_EN: "Revenue & Net Profit Trend (Multi-year)"
     },
-    "summary_tab_model": {
-        LANG_VI: "Chi Tiết Mô Hình",
-        LANG_EN: "Model Details"
+    "summary_chart_cap_title": {
+        LANG_VI: "Cấu Trúc Vốn",
+        LANG_EN: "Capital Structure"
     },
-    "summary_dashboard_title": {
-        LANG_VI: "Dashboard Tóm Tắt (Summary Dashboard)",
-        LANG_EN: "Summary Dashboard"
+    "summary_key_ratios_title": {
+        LANG_VI: "Các Chỉ Số Tài Chính Chính",
+        LANG_EN: "Key Financial Ratios"
     },
-    "metric_total_assets": {
-        LANG_VI: "Tổng Tài Sản",
-        LANG_EN: "Total Assets"
+    "summary_section_pd": {
+        LANG_VI: "B. Xác Suất Vỡ Nợ (PD) & Ngưỡng Chính Sách",
+        LANG_EN: "B. Default Probability (PD) & Policy Band"
     },
-    "metric_revenue": {
-        LANG_VI: "Doanh Thu",
-        LANG_EN: "Revenue"
+    "metric_pd_final": {
+        LANG_VI: "PD (đa yếu tố, sau điều chỉnh)",
+        LANG_EN: "PD (multi-factor, post-adj.)"
     },
-    "metric_net_profit": {
-        LANG_VI: "Lợi Nhuận Ròng",
-        LANG_EN: "Net Profit"
+    "metric_policy_band": {
+        LANG_VI: "Ngưỡng Chính Sách",
+        LANG_EN: "Policy Band"
     },
-    "chart_trend_title": {
-        LANG_VI: "Xu Hướng Doanh Thu & Lợi Nhuận",
-        LANG_EN: "Revenue & Net Profit Trend"
+    "policy_low": {
+        LANG_VI: "Thấp",
+        LANG_EN: "Low"
     },
-    "chart_trend_yaxis1": {
-        LANG_VI: "Doanh Thu (Tỷ VND)",
-        LANG_EN: "Revenue (Billion VND)"
+    "policy_medium": {
+        LANG_VI: "Trung Bình",
+        LANG_EN: "Medium"
     },
-    "chart_trend_yaxis2": {
-        LANG_VI: "Lợi Nhuận (Tỷ VND)",
-        LANG_EN: "Net Profit (Billion VND)"
+    "policy_high": {
+        LANG_VI: "Cao",
+        LANG_EN: "High"
     },
-    "chart_risk_gauge_title": {
-        LANG_VI: "Các Chỉ Báo Rủi Ro Chính",
-        LANG_EN: "Key Risk Indicators"
+    "policy_floor_cap": {
+        LANG_VI: "Ngưỡng Dưới/Trên",
+        LANG_EN: "Floor/Cap"
     },
-    "gauge_health": {
-        LANG_VI: "Sức Khỏe TC",
-        LANG_EN: "Financial Health"
+    "policy_exchange": {
+        LANG_VI: "Sàn Giao Dịch",
+        LANG_EN: "Exchange"
     },
-    "gauge_credit_risk": {
-        LANG_VI: "Rủi Ro TD",
-        LANG_EN: "Credit Risk"
+    "summary_section_shap": {
+        LANG_VI: "C. Giải Thích Mô Hình (SHAP)",
+        LANG_EN: "C. Model Explainability (SHAP)"
     },
-    "gauge_pd": {
-        LANG_VI: "Xác Suất Vỡ Nợ (PD)",
-        LANG_EN: "Default Probability (PD)"
+    "shap_chart_title": {
+        LANG_VI: "Đóng Góp Đặc Trưng Hàng Đầu (SHAP)",
+        LANG_EN: "Top Feature Contributions (SHAP)"
     },
-    "ratios_comparison_title": {
-        LANG_VI: "So Sánh Chỉ Số Chính",
-        LANG_EN: "Key Ratios Comparison"
+    "shap_xaxis_title": {
+        LANG_VI: "Giá trị SHAP → PD",
+        LANG_EN: "SHAP value → PD"
     },
-    "risk_assessment_title": {
-        LANG_VI: "Đánh Giá Rủi Ro Chi Tiết (Detailed Risk Assessment)",
-        LANG_EN: "Detailed Risk Assessment"
+    "shap_info_not_avail": {
+        LANG_VI: "SHAP không khả dụng cho mô hình/đầu vào này.",
+        LANG_EN: "SHAP is not available for this model/input."
     },
-    "risk_score_overall": {
-        LANG_VI: "Điểm Rủi Ro Tổng Thể",
-        LANG_EN: "Overall Risk Score"
+    "shap_info_unrecog": {
+        LANG_VI: "Đầu ra SHAP được phát hiện nhưng các cột không thể nhận dạng.",
+        LANG_EN: "SHAP output detected but columns are not recognizable."
     },
-    "risk_pd": {
-        LANG_VI: "Xác Suất Vỡ Nợ (PD)",
-        LANG_EN: "Default Probability (PD)"
+    "summary_section_stress": {
+        LANG_VI: "D. Kiểm Tra Sức Chịu Đựng — Tác Động Ngành & Hệ Thống",
+        LANG_EN: "D. Stress Testing — Sector & Systemic Impacts"
     },
-    "risk_credit_rating": {
-        LANG_VI: "Hạng Tín Dụng Dự Kiến",
-        LANG_EN: "Projected Credit Rating"
+    "stress_caption_baseline": {
+        LANG_VI: "Ngành gốc: {sector_raw} → Nhóm: **{bucket}** • PD Cơ sở (sau điều chỉnh): **{baseline_pd}**",
+        LANG_EN: "Raw Sector: {sector_raw} → Bucket: **{bucket}** • Baseline PD (post-adj): **{baseline_pd}**"
     },
-    "risk_categories_title": {
-        LANG_VI: "Phân Loại Rủi Ro",
-        LANG_EN: "Risk Categories"
+    "stress_chart_sector_title": {
+        LANG_VI: "Tác Động Ngành — ΔPD so với Cơ sở (%) • {bucket}",
+        LANG_EN: "Sector Impact — ΔPD vs Baseline (%) • {bucket}"
     },
-    "risk_radar_title": {
-        LANG_VI: "Bản Đồ Rủi Ro (Risk Radar)",
-        LANG_EN: "Risk Radar"
+    "stress_chart_systemic_title": {
+        LANG_VI: "Tác Động Hệ Thống — ΔPD so với Cơ sở (%)",
+        LANG_EN: "Systemic Impact — ΔPD vs Baseline (%)"
     },
-    "risk_factors_title": {
-        LANG_VI: "Các Yếu Tố Rủi Ro Cụ Thể",
-        LANG_EN: "Specific Risk Factors"
+    "stress_yaxis_title": {
+        LANG_VI: "Tác Động (%)",
+        LANG_EN: "Impact (%)"
     },
-    "risk_high": {
-        LANG_VI: "Rủi Ro Cao:",
-        LANG_EN: "High Risk Factors:"
+    "metric_baseline_pd": {
+        LANG_VI: "PD Cơ sở (sau điều chỉnh)",
+        LANG_EN: "Baseline PD (post-adj)"
     },
-    "risk_medium": {
-        LANG_VI: "Rủi Ro Trung Bình:",
-        LANG_EN: "Medium Risk Factors:"
+    "metric_max_pd": {
+        LANG_VI: "PD Tối đa dưới khủng hoảng",
+        LANG_EN: "Max PD under crises"
     },
-    "risk_mitigation_title": {
-        LANG_VI: "Các Biện Pháp Giảm Thiểu Rủi Ro",
-        LANG_EN: "Risk Mitigation Measures"
+    "stress_details_expander": {
+        LANG_VI: "Chi tiết kịch bản",
+        LANG_EN: "Scenario details"
     },
-    "model_details_title": {
-        LANG_VI: "Chi Tiết Mô Hình (Model Details)",
-        LANG_EN: "Model Details"
+    "stress_type_sector": {
+        LANG_VI: "Ngành",
+        LANG_EN: "Sector"
     },
-    "model_info_title": {
-        LANG_VI: "Thông Tin Mô Hình",
-        LANG_EN: "Model Information"
+    "stress_type_systemic": {
+        LANG_VI: "Hệ Thống",
+        LANG_EN: "Systemic"
     },
-    "model_features_title": {
-        LANG_VI: "Các Đặc Trưng Quan Trọng Nhất (Top Features)",
-        LANG_EN: "Most Important Features (Top Features)"
+    "stress_table_type": {
+        LANG_VI: "Loại",
+        LANG_EN: "Type"
     },
-    "chart_feature_importance_title": {
-        LANG_VI: "Tầm Quan Trọng Của Các Đặc Trưng",
-        LANG_EN: "Feature Importance"
+    "stress_table_scenario": {
+        LANG_VI: "Kịch Bản",
+        LANG_EN: "Scenario"
     },
-    "model_prediction_details": {
-        LANG_VI: "Chi Tiết Dự Báo",
-        LANG_EN: "Prediction Details"
+    "stress_table_pd": {
+        LANG_VI: "PD",
+        LANG_EN: "PD"
     },
-    "model_prediction_confidence": {
-        LANG_VI: "Độ Tin Cậy",
-        LANG_EN: "Confidence"
+    "stress_table_impact": {
+        LANG_VI: "Tác Động %",
+        LANG_EN: "Impact %"
     },
-    "model_prediction_risk_class": {
-        LANG_VI: "Phân Loại Rủi Ro",
-        LANG_EN: "Risk Classification"
-    },
-    "model_prediction_credit_rating": {
-        LANG_VI: "Hạng Tín Dụng",
-        LANG_EN: "Credit Rating"
-    },
-    "model_explanation_title": {
-        LANG_VI: "Giải Thích Dự Báo (SHAP Values)",
-        LANG_EN: "Prediction Explanation (SHAP Values)"
-    },
-    "model_explanation_push_up": {
-        LANG_VI: "Tăng Rủi Ro (Push Up):",
-        LANG_EN: "Risk Increasing Factors (Push Up):"
-    },
-    "model_explanation_push_down": {
-        LANG_VI: "Giảm Rủi Ro (Push Down):",
-        LANG_EN: "Risk Decreasing Factors (Push Down):"
+    "info_no_historical": {
+        LANG_VI: "Không có chuỗi dữ liệu lịch sử cho công ty này.",
+        LANG_EN: "No historical series for this company."
     },
 }
 
@@ -312,4 +356,9 @@ def T(key: str) -> str:
     """
     Convenience function to get the translated text based on current session state.
     """
+    # Streamlit session state is not available here, so we need to pass the language
+    # This function is mainly for use in app.py and tabs where st.session_state is available
+    # For now, we'll keep it simple and assume the caller handles the language.
+    # The actual implementation in app.py will use get_text(key, st.session_state.current_lang)
+    # We will update the tabs to use T(key) and import st.session_state.current_lang
     return get_text(key, get_current_lang())
