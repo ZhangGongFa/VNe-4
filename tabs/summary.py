@@ -47,6 +47,7 @@ import plotly.graph_objects as go
 # quantile computation inside `_compute_pd_base` will handle its
 # absence gracefully.
 from utils_new.model_scoring import model_feature_names, explain_shap
+from utils_new.lang import get_text
 
 __all__ = ["render"]
 
@@ -349,6 +350,8 @@ def render(feats_df: pd.DataFrame, raw_df: pd.DataFrame, ticker: str, year: int,
         st.warning("No record for selected Ticker & Year.")
         return
     row_model = row_model.iloc[0]
+    # Determine current language for localisation
+    lang = st.session_state.get('current_lang', 'vi')
     row_raw_candidates = raw_df[(raw_df["Ticker"].astype(str) == ticker) & (raw_df["Year"] == year)]
     row_raw = row_raw_candidates.iloc[0] if not row_raw_candidates.empty else pd.Series(dtype="object")
     # Sector and exchange determination
@@ -389,7 +392,7 @@ def render(feats_df: pd.DataFrame, raw_df: pd.DataFrame, ticker: str, year: int,
     )
     # ------------------------------------------------------------------
     # Section A: Company Financial Overview
-    st.subheader("A. Company Financial Overview")
+    st.subheader(get_text("summary_section_overview", lang))
     # Historical revenue & profit series
     hist = raw_df[raw_df["Ticker"].astype(str) == ticker].copy()
     hist = hist.sort_values("Year") if not hist.empty else hist
@@ -402,52 +405,66 @@ def render(feats_df: pd.DataFrame, raw_df: pd.DataFrame, ticker: str, year: int,
             prof_col = profit_cols[0] if profit_cols else None
             if rev_col and prof_col:
                 fig_rev = go.Figure()
-                fig_rev.add_trace(go.Bar(x=hist["Year"], y=hist[rev_col], name="Revenue"))
-                fig_rev.add_trace(go.Scatter(x=hist["Year"], y=hist[prof_col], name="Net Profit", mode="lines+markers", yaxis="y2"))
+                fig_rev.add_trace(go.Bar(x=hist["Year"], y=hist[rev_col], name=get_text("metric_revenue", lang)))
+                fig_rev.add_trace(go.Scatter(x=hist["Year"], y=hist[prof_col], name=get_text("metric_net_profit", lang), mode="lines+markers", yaxis="y2"))
                 fig_rev.update_layout(
-                    title="Revenue & Net Profit (multi-year)",
-                    yaxis=dict(title="Revenue"),
-                    yaxis2=dict(title="Net Profit", overlaying="y", side="right"),
+                    title=get_text("summary_chart_rev_title", lang),
+                    yaxis=dict(title=get_text("metric_revenue", lang)),
+                    yaxis2=dict(title=get_text("metric_net_profit", lang), overlaying="y", side="right"),
                     legend=dict(orientation="h", yanchor="bottom", y=-0.25, xanchor="center", x=0.5),
                     height=380,
                 )
                 st.plotly_chart(fig_rev, use_container_width=True)
             else:
-                st.info("No historical series for this company.")
+                st.info(get_text("info_no_historical", lang))
         else:
-            st.info("No historical series for this company.")
+            st.info(get_text("info_no_historical", lang))
     with col2:
-        fig_cap = go.Figure(data=[go.Pie(labels=["Total Debt", "Equity"], values=[debt_raw if np.isfinite(debt_raw) else 0.0, equity_raw if np.isfinite(equity_raw) else 0.0], hole=0.5)])
-        fig_cap.update_layout(title="Capital Structure", height=380)
+        fig_cap = go.Figure(data=[go.Pie(labels=[get_text("metric_debt", lang), get_text("metric_equity", lang)], values=[debt_raw if np.isfinite(debt_raw) else 0.0, equity_raw if np.isfinite(equity_raw) else 0.0], hole=0.5)])
+        fig_cap.update_layout(title=get_text("summary_chart_cap_title", lang), height=380)
         st.plotly_chart(fig_cap, use_container_width=True)
     # Key financial ratios table
-    st.markdown("### Key Financial Ratios")
+    st.markdown("### " + get_text("summary_key_ratios_title", lang))
     key_ratios = pd.DataFrame({
-        "Metric": ["ROA", "ROE", "Debt/Assets", "Debt/Equity", "Current Ratio", "Quick Ratio"],
+        "Metric": ["ROA", "ROE", get_text("metric_dta", lang), get_text("metric_dte", lang), "Current Ratio", "Quick Ratio"],
         "Value": [roa, roe, dta, dte, current_ratio, quick_ratio],
     })
     key_ratios["Value"] = key_ratios["Value"].apply(_fmt_ratio)
+    # Localize column names
+    if lang == 'vi':
+        key_ratios = key_ratios.rename(columns={"Metric": "Chỉ số", "Value": "Giá trị"})
     st.dataframe(key_ratios, use_container_width=True, hide_index=True)
     # ------------------------------------------------------------------
     # Section B: Default Probability & Policy Band
-    st.subheader("B. Default Probability (PD) & Policy Band")
+    st.subheader(get_text("summary_section_pd", lang))
     col_pd1, col_pd2 = st.columns([1, 2])
     # Left column: metrics and legend
     with col_pd1:
-        st.metric("PD (multi-factor, post-adj.)", f"{pd_final:.2%}")
-        st.metric("Policy Band", band)
+        # Map band to localized label
+        band_label_translated = {
+            "Low": get_text("policy_low", lang),
+            "Medium": get_text("policy_medium", lang),
+            "High": get_text("policy_high", lang)
+        }.get(band, band)
+        st.metric(get_text("metric_pd_final", lang), f"{pd_final:.2%}")
+        st.metric(get_text("metric_policy_band", lang), band_label_translated)
         # Legend explaining PD bands and thresholds
+        low_text = get_text("policy_low", lang)
+        med_text = get_text("policy_medium", lang)
+        high_text = get_text("policy_high", lang)
+        floor_cap = get_text("policy_floor_cap", lang)
+        exch_label = get_text("policy_exchange", lang)
         st.markdown(
             f"""
             <div style='font-size:12px;'>
               <span style='display:inline-flex;align-items:center;gap:8px;'>
                 <span style='display:inline-block;width:14px;height:14px;background:#E8F1FB;border:1px solid #cbd5e1;border-radius:3px;'></span>
-                Low &lt; 20%
+                {low_text} &lt; 20%
                 <span style='display:inline-block;width:14px;height:14px;background:#CFE3F7;border:1px solid #cbd5e1;border-radius:3px;margin-left:12px;'></span>
-                Medium &lt; 50%
+                {med_text} &lt; 50%
                 <span style='display:inline-block;width:14px;height:14px;background:#F9E3E3;border:1px solid #cbd5e1;border-radius:3px;margin-left:12px;'></span>
-                High ≥ 50%<br/>
-                Floor/Cap: {pd_floor:.0%}/0.98 • Exchange: {exchange or '-'}
+                {high_text} ≥ 50%<br/>
+                {floor_cap}: {pd_floor:.0%}/0.98 • {exch_label}: {exchange or '-'}
               </span>
             </div>
             """,
@@ -477,6 +494,10 @@ def render(feats_df: pd.DataFrame, raw_df: pd.DataFrame, ticker: str, year: int,
     # ------------------------------------------------------------------
     # Section C: Model Explainability (SHAP)
     st.subheader("C. Model Explainability (SHAP)")
+    # ------------------------------------------------------------------
+    # Section C: Model Explainability (SHAP or Feature Importance)
+    lang = st.session_state.get('current_lang', 'vi')
+    st.subheader(get_text("summary_section_shap", lang))
     # Prepare aligned features for SHAP computation
     shap_feats = [f for f in final_features if f in row_model.index]
     X_shap = pd.DataFrame([{f: float(row_model.get(f, 0.0)) for f in shap_feats}], columns=shap_feats)
@@ -485,10 +506,30 @@ def render(feats_df: pd.DataFrame, raw_df: pd.DataFrame, ticker: str, year: int,
         shap_raw = explain_shap(model, X_shap, top_n=10)
     except Exception:
         shap_raw = None
-    # If no shap results, display a message
+    # Flag to indicate whether fallback importance should be used
+    show_fallback = False
+    imp_df = pd.DataFrame()
+    # Determine if SHAP results are available
     if shap_raw is None or (hasattr(shap_raw, 'empty') and shap_raw.empty):
-        st.info("SHAP is not available for this model/input.")
-    else:
+        # Attempt to compute fallback importance using model's built‑in feature importance
+        try:
+            booster = getattr(model, 'booster_', None)
+            if booster is not None:
+                importances = booster.feature_importance(importance_type='gain')
+                names = booster.feature_name()
+                imp_df = pd.DataFrame({"Feature": names, "Importance": importances})
+                # Keep only features present in the shap feature list to align with current input
+                imp_df = imp_df[imp_df["Feature"].isin(shap_feats)]
+                # If all importances are zero, fallback to split importance
+                if not imp_df.empty and (imp_df["Importance"] == 0).all():
+                    imp_df["Importance"] = booster.feature_importance(importance_type='split')
+                # Select top 10 features by importance
+                imp_df = imp_df.sort_values("Importance", ascending=True).tail(10)
+                show_fallback = not imp_df.empty
+        except Exception:
+            imp_df = pd.DataFrame()
+    # Display SHAP chart if available
+    if shap_raw is not None and not (hasattr(shap_raw, 'empty') and shap_raw.empty):
         # Convert shap_raw into a DataFrame if necessary and select the first two columns
         if isinstance(shap_raw, pd.Series):
             shap_df = shap_raw.reset_index()
@@ -500,16 +541,16 @@ def render(feats_df: pd.DataFrame, raw_df: pd.DataFrame, ticker: str, year: int,
             shap_df = pd.DataFrame(shap_raw)
         # Ensure at least two columns exist
         if shap_df.shape[1] < 2:
-            st.info("SHAP output detected but cannot interpret columns.")
+            st.info(get_text("shap_info_unrecog", lang))
         else:
             # Take the first two columns as feature and shap value
             shap_df = shap_df.iloc[:, :2].copy()
             shap_df.columns = ["Feature", "SHAP"]
-            # Clean and sort by absolute shap value
+            # Convert SHAP column to numeric and drop NaNs
             shap_df["SHAP"] = pd.to_numeric(shap_df["SHAP"], errors='coerce')
             shap_df = shap_df.dropna()
             if shap_df.empty:
-                st.info("SHAP is not available for this model/input.")
+                st.info(get_text("shap_info_not_avail", lang))
             else:
                 shap_df["absSHAP"] = shap_df["SHAP"].abs()
                 shap_df = shap_df.sort_values("absSHAP", ascending=True).tail(10)
@@ -524,15 +565,42 @@ def render(feats_df: pd.DataFrame, raw_df: pd.DataFrame, ticker: str, year: int,
                     textposition="outside",
                 ))
                 fig_sh.update_layout(
-                    title="Top Feature Contributions (SHAP)",
-                    xaxis=dict(title="SHAP value → PD"),
+                    title=get_text("shap_chart_title", lang),
+                    xaxis=dict(title=get_text("shap_xaxis_title", lang)),
                     height=420,
                     margin=dict(l=10, r=20, t=40, b=10),
                 )
                 st.plotly_chart(fig_sh, use_container_width=True)
+    elif show_fallback and not imp_df.empty:
+        # Render fallback importance chart
+        imp_df = imp_df.copy()
+        imp_df["Importance"] = pd.to_numeric(imp_df["Importance"], errors='coerce')
+        imp_df = imp_df.dropna()
+        if not imp_df.empty:
+            colors = ["#1F77B4" for _ in imp_df["Importance"]]
+            fig_imp = go.Figure()
+            fig_imp.add_trace(go.Bar(
+                x=imp_df["Importance"],
+                y=imp_df["Feature"].astype(str),
+                orientation="h",
+                marker_color=colors,
+                text=[f"{v:.3f}" for v in imp_df["Importance"]],
+                textposition="outside",
+            ))
+            fig_imp.update_layout(
+                title=get_text("shap_chart_title", lang),
+                xaxis=dict(title=get_text("shap_xaxis_title", lang)),
+                height=420,
+                margin=dict(l=10, r=20, t=40, b=10),
+            )
+            st.plotly_chart(fig_imp, use_container_width=True)
+        else:
+            st.info(get_text("shap_info_not_avail", lang))
+    else:
+        st.info(get_text("shap_info_not_avail", lang))
     # ------------------------------------------------------------------
     # Section D: Stress Testing – Sector & Systemic Impacts
-    st.subheader("D. Stress Testing — Sector & Systemic Impacts")
+    st.subheader(get_text("summary_section_stress", lang))
     # Preset stress scenarios (absolute PD values under stress)
     sector_scenarios = {
         "Real Estate": {"Credit Tightening": 0.42, "Property Price Correction": 0.36},
@@ -568,7 +636,13 @@ def render(feats_df: pd.DataFrame, raw_df: pd.DataFrame, ticker: str, year: int,
     df_sys = pd.DataFrame(list(systemic_scenarios.items()), columns=["Scenario", "PD"])
     df_sys["Impact_%"] = (df_sys["PD"] - baseline_pd) / max(baseline_pd, 1e-9) * 100.0
     # Caption summarising baseline
-    st.caption(f"Raw Sector: {sector_raw or '-'} → Bucket: **{bucket}** • Baseline PD (post-adj): **{baseline_pd:.2%}**")
+    # Localize baseline caption
+    baseline_caption = get_text("stress_caption_baseline", lang).format(
+        sector_raw=sector_raw or '-',
+        bucket=bucket,
+        baseline_pd=f"{baseline_pd:.2%}"
+    )
+    st.caption(baseline_caption)
     col_st1, col_st2 = st.columns(2)
     with col_st1:
         if not df_sector.empty:
@@ -581,15 +655,15 @@ def render(feats_df: pd.DataFrame, raw_df: pd.DataFrame, ticker: str, year: int,
                 marker_color="rgba(10, 102, 194, 0.8)",
             ))
             fig_sector.update_layout(
-                title=f"Sector Impact — ΔPD vs Baseline (%) • {bucket}",
-                yaxis=dict(title="Impact (%)"),
+                title=get_text("stress_chart_sector_title", lang).format(bucket=bucket),
+                yaxis=dict(title=get_text("stress_yaxis_title", lang)),
                 height=340,
                 margin=dict(l=10, r=10, t=48, b=80),
                 xaxis_tickangle=-30,
             )
             st.plotly_chart(fig_sector, use_container_width=True)
         else:
-            st.info("No sector scenarios available.")
+            st.info("Không có kịch bản ngành." if lang == 'vi' else "No sector scenarios available.")
     with col_st2:
         if not df_sys.empty:
             fig_sys = go.Figure()
@@ -601,45 +675,44 @@ def render(feats_df: pd.DataFrame, raw_df: pd.DataFrame, ticker: str, year: int,
                 marker_color="rgba(34, 197, 94, 0.8)",
             ))
             fig_sys.update_layout(
-                title="Systemic Impact — ΔPD vs Baseline (%)",
-                yaxis=dict(title="Impact (%)"),
+                title=get_text("stress_chart_systemic_title", lang),
+                yaxis=dict(title=get_text("stress_yaxis_title", lang)),
                 height=340,
                 margin=dict(l=10, r=10, t=48, b=80),
                 xaxis_tickangle=-30,
             )
             st.plotly_chart(fig_sys, use_container_width=True)
         else:
-            st.info("No systemic scenarios available.")
+            st.info("Không có kịch bản hệ thống." if lang == 'vi' else "No systemic scenarios available.")
     # Optionally show full table of scenario PDs and impacts
-    with st.expander("Scenario details"):
+    with st.expander(get_text("stress_details_expander", lang)):
         # Combine both tables for display
         df_sector_disp = df_sector.copy()
-        df_sector_disp.insert(0, "Type", "Sector")
+        df_sector_disp.insert(0, "Type", get_text("stress_type_sector", lang))
         df_sys_disp = df_sys.copy()
-        df_sys_disp.insert(0, "Type", "Systemic")
+        df_sys_disp.insert(0, "Type", get_text("stress_type_systemic", lang))
         df_comb = pd.concat([df_sector_disp, df_sys_disp], ignore_index=True)
         df_comb["PD"] = df_comb["PD"].apply(lambda x: f"{x:.2%}")
         df_comb["Impact_%"] = df_comb["Impact_%"].apply(lambda x: f"{x:+.1f}%")
+        # Localize column names
+        df_comb = df_comb.rename(columns={
+            "Type": get_text("stress_table_type", lang),
+            "Scenario": get_text("stress_table_scenario", lang),
+            "PD": get_text("stress_table_pd", lang),
+            "Impact_%": get_text("stress_table_impact", lang)
+        })
         st.dataframe(df_comb, use_container_width=True, hide_index=True)
 
     # ------------------------------------------------------------------
-    # Section E: Risk Assessment & Recommendations
-    st.subheader("E. Risk Assessment & Commentary")
-    # Derive simple risk categories based on financial ratios
+    # Section E: Risk Assessment & Commentary
+    lang = st.session_state.get('current_lang', 'vi')
+    # Localized header
+    if lang == 'vi':
+        st.subheader("E. Đánh Giá Rủi Ro & Bình Luận")
+    else:
+        st.subheader("E. Risk Assessment & Commentary")
+    # Function to classify risk into categories
     def _risk_category(value: float | None, low_thresh: float, high_thresh: float, invert: bool = False) -> str:
-        """Map a numeric value to a risk category (Low/Medium/High).
-
-        Parameters
-        ----------
-        value : float or None
-            Numeric ratio to classify.  If ``None`` or NaN, returns '-'.
-        low_thresh : float
-            Threshold below which risk is considered low (if ``invert`` is False) or high (if True).
-        high_thresh : float
-            Threshold above which risk is considered high (if ``invert`` is False) or low (if True).
-        invert : bool, default False
-            If True, interpret lower values as higher risk (e.g. liquidity ratios).
-        """
         if value is None or not np.isfinite(value):
             return "-"
         if invert:
@@ -656,6 +729,7 @@ def render(feats_df: pd.DataFrame, raw_df: pd.DataFrame, ticker: str, year: int,
                 return "Medium"
             else:
                 return "High"
+    # Build risk data
     risk_data = [
         {"Metric": "Default Probability", "Value": f"{pd_final:.2%}", "Category": _risk_category(pd_final, 0.20, 0.50, invert=True)},
         {"Metric": "Debt/Equity", "Value": _fmt_ratio(dte), "Category": _risk_category(dte, 1.0, 2.0)},
@@ -663,9 +737,73 @@ def render(feats_df: pd.DataFrame, raw_df: pd.DataFrame, ticker: str, year: int,
         {"Metric": "ROA", "Value": _fmt_ratio(roa), "Category": _risk_category(roa, 0.0, 0.05, invert=False)},
     ]
     df_risk = pd.DataFrame(risk_data)
+    # Translate category labels
+    category_map = {"Low": ("Thấp" if lang == 'vi' else "Low"),
+                    "Medium": ("Trung Bình" if lang == 'vi' else "Medium"),
+                    "High": ("Cao" if lang == 'vi' else "High"),
+                    "-": "-"}
+    df_risk["Category"] = df_risk["Category"].map(category_map)
+    # Localize DataFrame column names
+    if lang == 'vi':
+        df_risk = df_risk.rename(columns={"Metric": "Chỉ số", "Value": "Giá trị", "Category": "Mức độ"})
+    else:
+        df_risk = df_risk.rename(columns={"Metric": "Metric", "Value": "Value", "Category": "Category"})
     st.dataframe(df_risk, use_container_width=True, hide_index=True)
-    # Sample commentary / recommendations (user can edit later)
-    st.markdown("**Sample Risk Notes & Recommendations:**")
-    st.markdown("- PD ở mức trung bình, cần theo dõi thêm các yếu tố thị trường và hoạt động kinh doanh.")
-    st.markdown("- Đòn bẩy tài chính nằm trong phạm vi cho phép, thanh khoản ổn định.")
-    st.markdown("- Triển vọng ngành tích cực hỗ trợ giảm rủi ro tổng thể.")
+    # Generate dynamic risk notes based on metrics
+    risk_notes_vi = []
+    risk_notes_en = []
+    # PD level commentary
+    if pd_final >= 0.50:
+        risk_notes_vi.append("- PD ở mức cao, doanh nghiệp đối mặt rủi ro vỡ nợ đáng kể.")
+        risk_notes_en.append("- High PD level indicates a significant default risk.")
+    elif pd_final >= 0.20:
+        risk_notes_vi.append("- PD ở mức trung bình; cần theo dõi biến động thị trường và kết quả kinh doanh.")
+        risk_notes_en.append("- Medium PD; monitor market movements and business performance closely.")
+    else:
+        risk_notes_vi.append("- PD ở mức thấp, rủi ro vỡ nợ được đánh giá thấp.")
+        risk_notes_en.append("- Low PD level implies a low default risk.")
+    # Debt/Equity commentary
+    if np.isfinite(dte):
+        if dte > 2.0:
+            risk_notes_vi.append("- Tỷ lệ nợ/vốn rất cao; công ty nên giảm đòn bẩy và quản lý nợ.")
+            risk_notes_en.append("- Debt/Equity ratio is very high; the company should reduce leverage and manage debt.")
+        elif dte > 1.0:
+            risk_notes_vi.append("- Tỷ lệ nợ/vốn ở mức trung bình; đòn bẩy cần được theo dõi.")
+            risk_notes_en.append("- Debt/Equity ratio is moderate; leverage should be monitored.")
+        else:
+            risk_notes_vi.append("- Tỷ lệ nợ/vốn thấp; cấu trúc vốn tương đối an toàn.")
+            risk_notes_en.append("- Debt/Equity ratio is low; capital structure is relatively safe.")
+    # Liquidity (Current Ratio) commentary
+    if np.isfinite(current_ratio):
+        if current_ratio < 1.0:
+            risk_notes_vi.append("- Hệ số thanh khoản thấp; có nguy cơ thiếu hụt vốn lưu động.")
+            risk_notes_en.append("- Liquidity ratio is low; risk of working capital shortfall.")
+        elif current_ratio < 1.5:
+            risk_notes_vi.append("- Hệ số thanh khoản trung bình; cần quản lý dòng tiền cẩn thận.")
+            risk_notes_en.append("- Liquidity ratio is moderate; careful cash flow management is required.")
+        else:
+            risk_notes_vi.append("- Hệ số thanh khoản tốt; khả năng thanh toán ngắn hạn vững vàng.")
+            risk_notes_en.append("- Liquidity ratio is strong; short-term obligations are well covered.")
+    # Profitability (ROA) commentary
+    if np.isfinite(roa):
+        if roa <= 0.0:
+            risk_notes_vi.append("- ROA âm; doanh nghiệp cần cải thiện hiệu quả sử dụng tài sản.")
+            risk_notes_en.append("- Negative ROA; the company needs to improve asset utilization efficiency.")
+        elif roa < 0.05:
+            risk_notes_vi.append("- ROA ở mức thấp; cần nâng cao hiệu quả sinh lời.")
+            risk_notes_en.append("- ROA is low; profitability needs to be improved.")
+        else:
+            risk_notes_vi.append("- ROA cao; doanh nghiệp đang hoạt động hiệu quả.")
+            risk_notes_en.append("- ROA is high; the company is operating efficiently.")
+    # Additional general recommendation
+    risk_notes_vi.append("- Theo dõi môi trường vĩ mô và triển vọng ngành để chủ động quản lý rủi ro.")
+    risk_notes_en.append("- Monitor macro environment and industry outlook to proactively manage risks.")
+    # Display notes
+    if lang == 'vi':
+        st.markdown("**Ghi chú & Khuyến nghị:**")
+        for line in risk_notes_vi:
+            st.markdown(line)
+    else:
+        st.markdown("**Risk Notes & Recommendations:**")
+        for line in risk_notes_en:
+            st.markdown(line)
