@@ -1,558 +1,394 @@
 """
-Financial Analysis Tab
-=======================
-
-This module implements the Financial Analysis tab for the default risk
-dashboard.  It builds income statement, balance sheet, cash flow and
-ratio tables directly from the raw financial data provided in
-`bctc_final.csv`.  All values are aggregated per‐year for the selected
-ticker so that users can compare trends over time.  At the bottom of
-the view a short narrative note is generated based on observed trends
-in revenue, net profit, leverage and liquidity.  Labels and section
-headings are translated on the fly based on the `lang` argument
-(`'vi'` for Vietnamese, `'en'` for English).
-
-The `render` function is the only public entry point.  It accepts the
-feature dataframe, raw dataframe, ticker, year, sector and language
-code as inputs and draws tables and charts using Streamlit.  The
-implementation avoids any hard–coded sample numbers – instead it
-computes values from the underlying data, performing safe numeric
-conversions where necessary.  If data for a particular item is not
-available the corresponding cell is left blank.
+Finance Tab - Extended with multilingual support
+Displays detailed financial statements and indicators
 """
-
-from __future__ import annotations
 
 import numpy as np
 import pandas as pd
 import streamlit as st
 import plotly.graph_objects as go
-
-# -----------------------------------------------------------------------------
-# Helper functions
-# -----------------------------------------------------------------------------
-
-def _extract_value(row: pd.Series, cols: list[str]) -> float | None:
-    """Return the first non-null numeric value from a list of possible columns.
-
-    Many financial metrics may be stored under different column names across
-    datasets.  This helper tries each name in order and converts the value to
-    float, returning NaN if none are found.
-    """
-    for col in cols:
-        if col in row and pd.notna(row[col]):
-            try:
-                val = row[col]
-                if isinstance(val, str):
-                    # remove commas and spaces for string numbers
-                    val = val.replace(",", "")
-                return float(val)
-            except Exception:
-                pass
-    return np.nan
-
-
-def _safe_div(a: float | None, b: float | None) -> float | np.nan:
-    """Safely divide two values, returning NaN on zero or missing denominators."""
-    try:
-        if b is None or (isinstance(b, float) and not np.isfinite(b)) or b == 0:
-            return np.nan
-        return float(a) / float(b)
-    except Exception:
-        return np.nan
-
-
-def _fmt_money(x: float | None) -> str:
-    """Format a numeric value as currency with comma separators."""
-    return "-" if (x is None or not np.isfinite(x)) else f"{x:,.1f}"
-
-
-def _fmt_ratio(x: float | None) -> str:
-    """Format a numeric ratio as percentage where appropriate."""
-    if x is None or not np.isfinite(x):
-        return "-"
-    # treat values between -1.5 and 1.5 as percentages
-    return f"{x:.2%}" if -1.5 <= float(x) <= 1.5 else f"{x:,.3f}"
-
-
-# -----------------------------------------------------------------------------
-# Translation dictionaries
-# -----------------------------------------------------------------------------
-
-# Vietnamese and English translations for table headers and metrics.  Each
-# dictionary maps the internal English key to the label shown in the UI for
-# that language.  Feel free to extend these dictionaries as needed; any keys
-# missing will fall back to the English label.
-VI_LABELS = {
-    # Section titles
-    "income_statement": "Báo cáo kết quả kinh doanh",
-    "balance_sheet": "Bảng cân đối kế toán",
-    "cash_flow": "Báo cáo lưu chuyển tiền tệ",
-    "ratios": "Tỷ số tài chính",
-    "notes": "Ghi chú & Phân tích",
-    # Column headers
-    "Revenue": "Doanh thu thuần",
-    "Gross Profit": "Lợi nhuận gộp",
-    "Operating Profit": "Lợi nhuận từ hoạt động",
-    "Profit Before Tax": "Lợi nhuận trước thuế",
-    "Net Profit": "Lợi nhuận ròng",
-    "Cash & CE": "Tiền mặt & TDT",
-    "Accounts Receivable": "Khoản phải thu",
-    "Inventories": "Hàng tồn kho",
-    "Other Current Assets": "Tài sản lưu động khác",
-    "Long-term Assets": "Tài sản dài hạn",
-    "Fixed Assets": "Tài sản cố định",
-    "Long-term Investments": "Đầu tư dài hạn",
-    "Other Non-current Assets": "Tài sản dài hạn khác",
-    "Total Assets": "Tổng tài sản",
-    "Total Liabilities": "Tổng nợ phải trả",
-    "Current Liabilities": "Nợ ngắn hạn",
-    "Long-term Liabilities": "Nợ dài hạn",
-    "Equity": "Vốn chủ sở hữu",
-    "Operating CF": "Dòng tiền HĐKD",
-    "Investing CF": "Dòng tiền đầu tư",
-    "Financing CF": "Dòng tiền tài chính",
-    "Net Change in Cash": "Thay đổi tiền mặt ròng",
-    "Ending Cash": "Tiền cuối kỳ",
-    "ROA": "ROA",
-    "ROE": "ROE",
-    "Debt_to_Assets": "Nợ/Tài sản",
-    "Debt_to_Equity": "Nợ/Vốn chủ",
-    "Current_Ratio": "Hệ số thanh khoản hiện tại",
-    "Quick_Ratio": "Hệ số thanh khoản nhanh",
-    # Additional metrics
-    "Working Capital to Total Assets": "Vốn lưu động trên tổng tài sản",
-    "Equity to Liabilities": "Vốn chủ sở hữu/Nợ phải trả",
-    "Long Term Debt to Assets": "Nợ dài hạn/Tổng tài sản",
-    "Net Debt to Equity": "Nợ ròng/Vốn chủ sở hữu",
-    "Receivables Turnover": "Vòng quay khoản phải thu",
-    "Inventory Turnover": "Vòng quay hàng tồn kho",
-    "Asset Turnover": "Vòng quay tài sản",
-    "EBIT to Assets": "EBIT/Tài sản",
-    "Operating Income to Debt": "Thu nhập HĐKD/Nợ",
-    "Net Profit Margin": "Biên lợi nhuận ròng",
-    "Gross Margin": "Biên lợi nhuận gộp",
-    "Interest Coverage": "Khả năng trả lãi",
-    "EBITDA to Interest": "EBITDA/Lãi vay",
-    "Total Debt to EBITDA": "Tổng nợ/EBITDA",
-    # Note section
-    "note_revenue_up": "Doanh thu tăng trưởng ổn định trong giai đoạn gần đây.",
-    "note_revenue_down": "Doanh thu có xu hướng giảm đáng kể so với những năm trước.",
-    "note_revenue_stable": "Doanh thu dao động nhẹ nhưng không thay đổi nhiều.",
-    "note_profit_up": "Lợi nhuận ròng cải thiện qua thời gian, cho thấy hoạt động hiệu quả hơn.",
-    "note_profit_down": "Lợi nhuận ròng suy giảm, cần xem xét nguyên nhân chi phí hoặc doanh thu.",
-    "note_profit_stable": "Lợi nhuận ròng ổn định qua các năm.",
-    "note_leverage_low": "Tỷ lệ nợ trên vốn chủ sở hữu ở mức an toàn (<1), cho thấy khả năng tự tài trợ tốt.",
-    "note_leverage_medium": "Tỷ lệ nợ trên vốn chủ sở hữu trung bình, công ty dùng đòn bẩy nợ tương đối.",
-    "note_leverage_high": "Tỷ lệ nợ trên vốn chủ sở hữu cao, tiềm ẩn rủi ro đòn bẩy tài chính.",
-    "note_liquidity_high": "Hệ số thanh khoản hiện hành cao (>1.5), khả năng đáp ứng nợ ngắn hạn tốt.",
-    "note_liquidity_medium": "Hệ số thanh khoản hiện hành ở mức trung bình, cần theo dõi.",
-    "note_liquidity_low": "Hệ số thanh khoản hiện hành thấp (<1), công ty có thể gặp khó khăn trong thanh toán ngắn hạn.",
-}
-
-EN_LABELS = {
-    "income_statement": "Income Statement",
-    "balance_sheet": "Balance Sheet",
-    "cash_flow": "Cash Flow Statement",
-    "ratios": "Financial Ratios",
-    "notes": "Notes & Analysis",
-    # Column headers
-    "Revenue": "Revenue",
-    "Gross Profit": "Gross Profit",
-    "Operating Profit": "Operating Profit",
-    "Profit Before Tax": "Profit Before Tax",
-    "Net Profit": "Net Profit",
-    "Cash & CE": "Cash & CE",
-    "Accounts Receivable": "Accounts Receivable",
-    "Inventories": "Inventories",
-    "Other Current Assets": "Other Current Assets",
-    "Long-term Assets": "Long-term Assets",
-    "Fixed Assets": "Fixed Assets",
-    "Long-term Investments": "Long-term Investments",
-    "Other Non-current Assets": "Other Non-current Assets",
-    "Total Assets": "Total Assets",
-    "Total Liabilities": "Total Liabilities",
-    "Current Liabilities": "Current Liabilities",
-    "Long-term Liabilities": "Long-term Liabilities",
-    "Equity": "Equity",
-    "Operating CF": "Operating Cash Flow",
-    "Investing CF": "Investing Cash Flow",
-    "Financing CF": "Financing Cash Flow",
-    "Net Change in Cash": "Net Change in Cash",
-    "Ending Cash": "Ending Cash",
-    "ROA": "ROA",
-    "ROE": "ROE",
-    "Debt_to_Assets": "Debt to Assets",
-    "Debt_to_Equity": "Debt to Equity",
-    "Current_Ratio": "Current Ratio",
-    "Quick_Ratio": "Quick Ratio",
-    # Additional metrics
-    "Working Capital to Total Assets": "Working Capital to Total Assets",
-    "Equity to Liabilities": "Equity to Liabilities",
-    "Long Term Debt to Assets": "Long Term Debt to Assets",
-    "Net Debt to Equity": "Net Debt to Equity",
-    "Receivables Turnover": "Receivables Turnover",
-    "Inventory Turnover": "Inventory Turnover",
-    "Asset Turnover": "Asset Turnover",
-    "EBIT to Assets": "EBIT to Assets",
-    "Operating Income to Debt": "Operating Income to Debt",
-    "Net Profit Margin": "Net Profit Margin",
-    "Gross Margin": "Gross Margin",
-    "Interest Coverage": "Interest Coverage",
-    "EBITDA to Interest": "EBITDA to Interest",
-    "Total Debt to EBITDA": "Total Debt to EBITDA",
-    # Notes
-    "note_revenue_up": "Revenue has been growing steadily over recent years.",
-    "note_revenue_down": "Revenue shows a significant downward trend compared to prior years.",
-    "note_revenue_stable": "Revenue fluctuates only slightly with no major change.",
-    "note_profit_up": "Net profit has improved over time, indicating better operating efficiency.",
-    "note_profit_down": "Net profit is declining; investigate cost or revenue drivers.",
-    "note_profit_stable": "Net profit remains stable across the years.",
-    "note_leverage_low": "Debt to equity ratio is low (<1), indicating strong self–funding capability.",
-    "note_leverage_medium": "Debt to equity ratio is moderate; the company uses some leverage.",
-    "note_leverage_high": "Debt to equity ratio is high, signalling leverage risk.",
-    "note_liquidity_high": "Current ratio is high (>1.5), indicating good short-term solvency.",
-    "note_liquidity_medium": "Current ratio is average; liquidity should be monitored.",
-    "note_liquidity_low": "Current ratio is low (<1), suggesting potential short-term liquidity issues.",
-}
-
-
-def _t(label_key: str, lang: str) -> str:
-    """Return the translated label for the given key and language."""
-    if lang == 'vi':
-        return VI_LABELS.get(label_key, label_key)
-    return EN_LABELS.get(label_key, label_key)
-
-
-# -----------------------------------------------------------------------------
-# Main render function
-# -----------------------------------------------------------------------------
+from utils_new.lang import get_text
 
 def render(feats_df: pd.DataFrame, raw_df: pd.DataFrame, ticker: str, year: int,
-           sector: str, lang: str = 'vi', *args) -> None:
+           model, thresholds, sector: str, final_features: list):
     """
-    Render the Finance tab.
+    Render the Finance tab with actual data from bctc_final.csv.
 
-    Parameters
-    ----------
-    feats_df : pd.DataFrame
-        Feature dataframe (unused but kept for API consistency).
-    raw_df : pd.DataFrame
-        Raw financial data loaded from `bctc_final.csv`.
-    ticker : str
-        The ticker symbol selected in the sidebar.
-    year : int
-        The latest year selected; used for context but all years are plotted.
-    sector : str
-        Sector classification of the company (for display only).
-    lang : str, optional
-        Language code ('vi' for Vietnamese, 'en' for English).
+    This implementation replaces sample/static numbers with real financial data for
+    the selected ticker and year. It also computes and displays 19 key financial
+    ratios and includes multi‑year trend tables/charts to let users see how
+    metrics evolve over time.
     """
-    st.subheader(f"📊 { _t('income_statement', lang) } / { _t('balance_sheet', lang) }")
+    lang = st.session_state.get('current_lang', 'vi')
 
-    # Filter historical records for the selected ticker and sort by year
-    hist = raw_df[raw_df["Ticker"].astype(str) == ticker].copy()
-    if hist.empty:
-        st.info(
-            "Không có dữ liệu" if lang == 'vi' else "No financial data available for this ticker."
-        )
+    st.subheader(get_text("finance_header", lang))
+
+    # Retrieve the row for the selected ticker/year from features and raw data
+    row_feat = feats_df[(feats_df["Ticker"].astype(str) == str(ticker)) & (feats_df["Year"] == year)]
+    row_raw = raw_df[(raw_df["Ticker"].astype(str) == str(ticker)) & (raw_df["Year"] == year)]
+
+    if row_feat.empty or row_raw.empty:
+        st.warning(get_text("warning_no_data", lang))
         return
-    hist = hist.sort_values("Year").reset_index(drop=True)
-    hist["Year"] = pd.to_numeric(hist["Year"], errors="coerce")
 
-    # Construct Income Statement across years
-    income_items = [
-        ("Revenue", ["Net Sales", "Revenue (Bn. VND)", "Revenue"]),
-        ("Gross Profit", ["Gross Profit"]),
-        ("Operating Profit", ["Operating Profit/Loss", "Operating_Profit"]),
-        ("Profit Before Tax", ["Profit before tax", "Net Profit/Loss before tax"]),
-        ("Net Profit", ["Net Profit For the Year", "Net_Profit"]),
-    ]
-    income_data: list[dict[str, float | int | None]] = []
-    for _, row in hist.iterrows():
-        yr = int(row.get("Year")) if pd.notna(row.get("Year")) else None
-        row_dict: dict[str, float | int | None] = {"Year": yr}
-        for name, cols in income_items:
-            row_dict[name] = _extract_value(row, cols)
-        income_data.append(row_dict)
-    income_df = pd.DataFrame(income_data)
-    if not income_df.empty:
-        income_df = income_df.set_index("Year").sort_index()
+    row_feat = row_feat.iloc[0]
+    row_raw = row_raw.iloc[0]
 
-    # Construct Balance Sheet across years
-    bs_items = [
-        ("Cash & CE", ["Cash and cash equivalents (Bn. VND)", "Cash and cash equivalents", "Cash"]),
-        ("Accounts Receivable", ["Accounts receivable (Bn. VND)", "Short-term loans receivables (Bn. VND)"]),
-        ("Inventories", ["Net Inventories", "Inventories", "Net Inventories, and other inventory categories"]),
-        ("Other Current Assets", ["Other current assets", "Other current assets (Bn. VND)"]),
-        ("Long-term Assets", ["LONG-TERM ASSETS (Bn. VND)", "Long_term_assets"]),
-        ("Fixed Assets", ["Fixed assets (Bn. VND)", "Fixed assets"]),
-        ("Long-term Investments", ["Long-term investments (Bn. VND)"]),
-        ("Other Non-current Assets", ["Other non-current assets", "Other non-current assets (Bn. VND)"]),
-        ("Total Assets", ["TOTAL ASSETS (Bn. VND)", "Total_Assets"]),
-        ("Total Liabilities", ["LIABILITIES (Bn. VND)", "Total liabilities (Bn. VND)"]),
-        ("Current Liabilities", ["Current liabilities (Bn. VND)", "Current_Liabilities"]),
-        ("Long-term Liabilities", ["Long-term liabilities (Bn. VND)", "Long_Term_Liabilities"]),
-        ("Equity", ["OWNER'S EQUITY(Bn.VND)", "Equity"]),
-    ]
-    bs_data: list[dict[str, float | int | None]] = []
-    for _, row in hist.iterrows():
-        yr = int(row.get("Year")) if pd.notna(row.get("Year")) else None
-        row_dict: dict[str, float | int | None] = {"Year": yr}
-        for name, cols in bs_items:
-            row_dict[name] = _extract_value(row, cols)
-        bs_data.append(row_dict)
-    bs_df = pd.DataFrame(bs_data)
-    if not bs_df.empty:
-        bs_df = bs_df.set_index("Year").sort_index()
-
-    # Construct Cash Flow across years
-    cf_items = [
-        ("Operating CF", ["Net cash inflows/outflows from operating activities", "Net cash flows from operating activities"]),
-        ("Investing CF", ["Net Cash Flows from Investing Activities", "Net cash flows from investing activities"]),
-        ("Financing CF", ["Cash flows from financial activities", "Net cash flows from financing activities"]),
-        ("Net Change in Cash", ["Net increase/decrease in cash and cash equivalents", "Net cash flows (increase/decrease) in cash"]),
-        ("Ending Cash", ["Cash and Cash Equivalents at the end of period", "Cash and cash equivalents"]),
-    ]
-    cf_data: list[dict[str, float | int | None]] = []
-    for _, row in hist.iterrows():
-        yr = int(row.get("Year")) if pd.notna(row.get("Year")) else None
-        row_dict: dict[str, float | int | None] = {"Year": yr}
-        for name, cols in cf_items:
-            row_dict[name] = _extract_value(row, cols)
-        cf_data.append(row_dict)
-    cf_df = pd.DataFrame(cf_data)
-    if not cf_df.empty:
-        cf_df = cf_df.set_index("Year").sort_index()
-
-    # ---------------------------------------------------------------------
-    # Construct comprehensive financial ratios across years.  This covers
-    # 19 commonly used metrics including liquidity, leverage, profitability
-    # and efficiency indicators.  The formulas mirror those used in the
-    # VNe-4 project but applied row-wise to our dataset.
-    # ---------------------------------------------------------------------
-    ratio_rows: list[dict[str, float | int | None]] = []
-    for _, row in hist.iterrows():
-        yr = int(row.get("Year")) if pd.notna(row.get("Year")) else None
-        # Extract values needed for calculations
-        assets = _extract_value(row, ["TOTAL ASSETS (Bn. VND)", "Total_Assets"])
-        equity = _extract_value(row, ["OWNER'S EQUITY(Bn.VND)", "Equity"])
-        curr_assets = _extract_value(row, ["CURRENT ASSETS (Bn. VND)", "Current_Assets"])
-        curr_liab = _extract_value(row, ["Current liabilities (Bn. VND)", "Current_Liabilities"])
-        long_liab = _extract_value(row, ["Long-term liabilities (Bn. VND)", "Long_Term_Liabilities"])
-        total_liab = (curr_liab or 0.0) + (long_liab or 0.0)
-        st_borrow = _extract_value(row, ["Short-term borrowings (Bn. VND)", "Short_Term_Borrowings"])
-        lt_borrow = _extract_value(row, ["Long-term borrowings (Bn. VND)", "Long_Term_Borrowings"])
-        total_debt = _extract_value(row, ["Total_Debt"]) if "Total_Debt" in row.index else None
-        if total_debt is None or not np.isfinite(total_debt):
-            # fallback: sum of short-term and long-term borrowings
-            total_debt = (st_borrow or 0.0) + (lt_borrow or 0.0)
-        revenue = _extract_value(row, ["Net Sales", "Revenue (Bn. VND)", "Revenue"])
-        cogs = _extract_value(row, ["Cost of Sales", "Cost of goods sold", "COGS"])
-        gross_profit = _extract_value(row, ["Gross Profit"])
-        if gross_profit is None or not np.isfinite(gross_profit):
-            gross_profit = None
-            if revenue is not None and np.isfinite(revenue) and cogs is not None and np.isfinite(cogs):
-                gross_profit = revenue - cogs
-        operating_profit = _extract_value(row, ["Operating Profit/Loss", "Operating_Profit"])
-        net_profit = _extract_value(row, ["Net Profit For the Year", "Net_Profit"])
-        interest_expenses = _extract_value(row, ["Interest Expenses", "Interest_Expenses", "Financial expenses", "financial expenses"])
-        depreciation = _extract_value(row, ["Depreciation and Amortisation", "Depreciation"])
-        # Compute EBITDA: Operating profit + depreciation (approx)
-        ebitda = None
-        if operating_profit is not None and np.isfinite(operating_profit) and depreciation is not None and np.isfinite(depreciation):
-            ebitda = operating_profit + depreciation
-        elif operating_profit is not None and np.isfinite(operating_profit):
-            ebitda = operating_profit
-        # Inventory and receivables
-        inventories = _extract_value(row, ["Net Inventories", "Inventories", "Net Inventories, and other inventory categories"])
-        receivables_val = _extract_value(row, ["Accounts receivable (Bn. VND)", "Short-term loans receivables (Bn. VND)"])
-        cash_val = _extract_value(row, ["Cash and cash equivalents (Bn. VND)", "Cash and cash equivalents", "Cash"])
-        # Compute ratios safely
-        current_ratio = _safe_div(curr_assets, curr_liab)
-        # Quick ratio: (current assets - inventories) / current liabilities; fallback to (cash + receivables)/current liabilities
-        if (curr_assets is not None and inventories is not None and np.isfinite(curr_assets) and np.isfinite(inventories)):
-            quick_ratio = _safe_div(curr_assets - inventories, curr_liab)
-        else:
-            quick_ratio = _safe_div((cash_val or 0.0) + (receivables_val or 0.0), curr_liab)
-        working_cap_to_assets = _safe_div((curr_assets or 0.0) - (curr_liab or 0.0), assets)
-        debt_to_assets = _safe_div(total_debt if np.isfinite(total_debt) else total_liab, assets)
-        debt_to_equity = _safe_div(total_debt if np.isfinite(total_debt) else total_liab, equity)
-        equity_to_liabilities = _safe_div(equity, total_liab)
-        lt_debt_to_assets = _safe_div(lt_borrow, assets)
-        net_debt_to_equity = _safe_div((total_debt or 0.0) - (cash_val or 0.0), equity)
-        receivables_turnover = _safe_div(revenue, receivables_val)
-        inventory_turnover = _safe_div(cogs, inventories)
-        asset_turnover = _safe_div(revenue, assets)
-        roa = _safe_div(net_profit, assets)
-        roe = _safe_div(net_profit, equity)
-        ebit_to_assets = _safe_div(operating_profit, assets)
-        op_income_to_debt = _safe_div(operating_profit, total_debt if np.isfinite(total_debt) else total_liab)
-        net_profit_margin = _safe_div(net_profit, revenue)
-        gross_margin = _safe_div(gross_profit, revenue)
-        interest_coverage = _safe_div(operating_profit, interest_expenses)
-        ebitda_to_interest = _safe_div(ebitda, interest_expenses)
-        total_debt_to_ebitda = _safe_div(total_debt, ebitda)
-        ratio_rows.append({
-            "Year": yr,
-            "Current Ratio": current_ratio,
-            "Quick Ratio": quick_ratio,
-            "Working Capital to Total Assets": working_cap_to_assets,
-            "Debt to Assets": debt_to_assets,
-            "Debt to Equity": debt_to_equity,
-            "Equity to Liabilities": equity_to_liabilities,
-            "Long Term Debt to Assets": lt_debt_to_assets,
-            "Net Debt to Equity": net_debt_to_equity,
-            "Receivables Turnover": receivables_turnover,
-            "Inventory Turnover": inventory_turnover,
-            "Asset Turnover": asset_turnover,
-            "ROA": roa,
-            "ROE": roe,
-            "EBIT to Assets": ebit_to_assets,
-            "Operating Income to Debt": op_income_to_debt,
-            "Net Profit Margin": net_profit_margin,
-            "Gross Margin": gross_margin,
-            "Interest Coverage": interest_coverage,
-            "EBITDA to Interest": ebitda_to_interest,
-            "Total Debt to EBITDA": total_debt_to_ebitda,
-        })
-    ratio_df = pd.DataFrame(ratio_rows)
-    if not ratio_df.empty:
-        ratio_df = ratio_df.set_index("Year").sort_index()
-
-    # -------------------------------------------------------------------------
-    # Display sections
-    # -------------------------------------------------------------------------
-
-    # Income Statement
-    st.subheader(_t("income_statement", lang))
-    if income_df.empty:
-        st.info(
-            "Không có dữ liệu báo cáo kết quả kinh doanh" if lang == 'vi' else "No income statement data found."
-        )
-    else:
-        # rename columns based on language and format numbers
-        disp = income_df.copy()
-        disp = disp.applymap(lambda x: _fmt_money(x) if pd.notna(x) else "-")
-        disp.index = disp.index.astype(int)
-        disp.rename(columns={col: _t(col, lang) for col in disp.columns}, inplace=True)
-        st.dataframe(disp, use_container_width=True)
-
-    # Balance Sheet
-    st.subheader(_t("balance_sheet", lang))
-    if bs_df.empty:
-        st.info(
-            "Không có dữ liệu bảng cân đối" if lang == 'vi' else "No balance sheet data found."
-        )
-    else:
-        disp = bs_df.copy()
-        disp = disp.applymap(lambda x: _fmt_money(x) if pd.notna(x) else "-")
-        disp.index = disp.index.astype(int)
-        disp.rename(columns={col: _t(col, lang) for col in disp.columns}, inplace=True)
-        st.dataframe(disp, use_container_width=True)
-
-    # Cash Flow
-    st.subheader(_t("cash_flow", lang))
-    if cf_df.empty:
-        st.info(
-            "Không có dữ liệu lưu chuyển tiền tệ" if lang == 'vi' else "No cash flow statement data found."
-        )
-    else:
-        disp = cf_df.copy()
-        disp = disp.applymap(lambda x: _fmt_money(x) if pd.notna(x) else "-")
-        disp.index = disp.index.astype(int)
-        disp.rename(columns={col: _t(col, lang) for col in disp.columns}, inplace=True)
-        st.dataframe(disp, use_container_width=True)
-
-    # Ratios
-    st.subheader(_t("ratios", lang))
-    if ratio_df.empty:
-        st.info(
-            "Không có dữ liệu tỷ số tài chính" if lang == 'vi' else "No ratio data found."
-        )
-    else:
-        disp = ratio_df.copy()
-        disp.index = disp.index.astype(int)
-        # pivot so metrics are rows and years are columns for readability
-        pivot = disp.T
-        pivot = pivot.applymap(lambda x: _fmt_ratio(x) if (x is not None and np.isfinite(x)) else "-")
-        pivot.rename(index={idx: _t(idx, lang) for idx in pivot.index}, inplace=True)
-        st.dataframe(pivot, use_container_width=True)
-
-    # Revenue & Profit Trend Chart
-    if not income_df.empty:
+    # Helper to safely convert values to floats
+    def to_num(x):
         try:
-            years = income_df.index.astype(int).tolist()
-            revenues = income_df["Revenue"].tolist()
-            profits = income_df["Net Profit"].tolist()
-            fig = go.Figure()
-            fig.add_trace(go.Bar(x=years, y=revenues, name=_t("Revenue", lang)))
-            fig.add_trace(go.Scatter(x=years, y=profits, name=_t("Net Profit", lang), mode="lines+markers", yaxis="y2"))
-            fig.update_layout(
-                title=_t("Revenue", lang) + " & " + _t("Net Profit", lang),
-                yaxis=dict(title=_t("Revenue", lang)),
-                yaxis2=dict(title=_t("Net Profit", lang), overlaying="y", side="right"),
-                height=380,
-                legend=dict(orientation="h", yanchor="bottom", y=-0.25, xanchor="center", x=0.5)
-            )
-            st.plotly_chart(fig, use_container_width=True)
+            if pd.isna(x):
+                return 0.0
+            if isinstance(x, str):
+                return float(str(x).replace(",", ""))
+            return float(x)
         except Exception:
-            pass
+            return 0.0
 
-    # -------------------------------------------------------------------------
-    # Generate narrative notes
-    # -------------------------------------------------------------------------
-    notes: list[str] = []
-    # Revenue trend
-    if not income_df.empty and not income_df["Revenue"].dropna().empty:
-        rev_series = income_df["Revenue"].dropna()
-        if not rev_series.empty:
-            rev_start = rev_series.iloc[0]; rev_end = rev_series.iloc[-1]
-            if np.isfinite(rev_start) and np.isfinite(rev_end):
-                if rev_end > rev_start * 1.05:
-                    notes.append(_t("note_revenue_up", lang))
-                elif rev_end < rev_start * 0.95:
-                    notes.append(_t("note_revenue_down", lang))
-                else:
-                    notes.append(_t("note_revenue_stable", lang))
-    # Profit trend
-    if not income_df.empty and not income_df["Net Profit"].dropna().empty:
-        pr_series = income_df["Net Profit"].dropna()
-        if not pr_series.empty:
-            pr_start = pr_series.iloc[0]; pr_end = pr_series.iloc[-1]
-            if np.isfinite(pr_start) and np.isfinite(pr_end):
-                if pr_end > pr_start * 1.05:
-                    notes.append(_t("note_profit_up", lang))
-                elif pr_end < pr_start * 0.95:
-                    notes.append(_t("note_profit_down", lang))
-                else:
-                    notes.append(_t("note_profit_stable", lang))
-    # Leverage level
-    if not ratio_df.empty and not ratio_df["Debt_to_Equity"].dropna().empty:
-        dte_latest = ratio_df["Debt_to_Equity"].dropna().iloc[-1]
-        if np.isfinite(dte_latest):
-            if dte_latest < 1:
-                notes.append(_t("note_leverage_low", lang))
-            elif dte_latest < 2:
-                notes.append(_t("note_leverage_medium", lang))
+    # Helper to format values nicely
+    def fmt_val(x):
+        return "-" if (x is None or not np.isfinite(x)) else f"{x:,.2f}"
+
+    # Helper to compute ratio evaluation
+    def evaluate_ratio(name: str, value: float):
+        if value is None or not np.isfinite(value):
+            return "-"
+        # Define basic thresholds for good/fair/poor
+        thresholds = {
+            'Current_Ratio': (1.5, 1.0),
+            'Quick_Ratio': (1.0, 0.5),
+            'Working_Capital_to_Total_Assets': (0.2, 0.1),
+            'Debt_to_Assets': (0.5, 0.7),
+            'Debt_to_Equity': (1.0, 2.0),
+            'Equity_to_Liabilities': (1.0, 0.5),
+            'Long_Term_Debt_to_Assets': (0.3, 0.6),
+            'Receivables_Turnover': (5.0, 2.0),
+            'Inventory_Turnover': (5.0, 2.0),
+            'Asset_Turnover': (1.0, 0.5),
+            'ROA': (0.10, 0.0),
+            'ROE': (0.15, 0.0),
+            'EBIT_to_Assets': (0.10, 0.0),
+            'Operating_Income_to_Debt': (0.30, 0.10),
+            'Net_Profit_Margin': (0.10, 0.0),
+            'Gross_Margin': (0.20, 0.10),
+            'Interest_Coverage': (3.0, 1.0),
+            'EBITDA_to_Interest': (3.0, 1.0),
+            'Total_Debt_to_EBITDA': (3.0, 5.0)
+        }
+        good, fair = thresholds.get(name, (None, None))
+        # For ratios where lower is better (like Total_Debt_to_EBITDA) invert logic
+        if name == 'Total_Debt_to_EBITDA':
+            if value < good:
+                return "Tốt ↑" if lang == 'vi' else "Good ↑"
+            elif value < fair:
+                return "Bình Thường →" if lang == 'vi' else "Fair →"
             else:
-                notes.append(_t("note_leverage_high", lang))
-    # Liquidity level
-    if not ratio_df.empty and not ratio_df["Current_Ratio"].dropna().empty:
-        cr_latest = ratio_df["Current_Ratio"].dropna().iloc[-1]
-        if np.isfinite(cr_latest):
-            if cr_latest > 1.5:
-                notes.append(_t("note_liquidity_high", lang))
-            elif cr_latest > 1.0:
-                notes.append(_t("note_liquidity_medium", lang))
+                return "Kém ↓" if lang == 'vi' else "Poor ↓"
+        else:
+            if value > good:
+                return "Tốt ↑" if lang == 'vi' else "Good ↑"
+            elif value > fair:
+                return "Bình Thường →" if lang == 'vi' else "Fair →"
             else:
-                notes.append(_t("note_liquidity_low", lang))
-    # Display notes
-    st.subheader(_t("notes", lang))
-    if not notes:
-        st.write(
-            "*Chưa có ghi chú; bạn có thể bổ sung tại đây.*" if lang == 'vi' else "*No notes generated; you may add your own commentary here.*"
+                return "Kém ↓" if lang == 'vi' else "Poor ↓"
+
+    # Construct multi‑year slices for trends
+    ticker_raw = raw_df[raw_df["Ticker"].astype(str) == str(ticker)].copy()
+    ticker_raw = ticker_raw.sort_values("Year")
+    ticker_feat = feats_df[feats_df["Ticker"].astype(str) == str(ticker)].copy().sort_values("Year")
+
+    # ================ TAB 1: INCOME STATEMENT ===================
+    tab1, tab2, tab3, tab4, tab5 = st.tabs([
+        get_text("finance_tab_income", lang),
+        get_text("finance_tab_balance", lang),
+        get_text("finance_tab_cashflow", lang),
+        get_text("finance_tab_indicators", lang),
+        get_text("finance_tab_notes", lang)
+    ])
+
+    with tab1:
+        st.markdown(f"### {get_text('income_statement_title', lang)}")
+        st.markdown(f"**{get_text('income_year', lang)}:** {year} | **{get_text('income_company', lang)}:** {ticker} | **{get_text('income_sector', lang)}:** {sector}")
+
+        # Extract income statement values
+        # Determine revenue using available columns (Net Sales preferred, fallback to Revenue (Bn. VND))
+        revenue = to_num(row_raw.get('Net Sales', row_raw.get('Revenue', row_raw.get('Revenue (Bn. VND)', np.nan))))
+        cogs = to_num(row_raw.get('Cost of Sales'))
+        gross_profit = to_num(row_raw.get('Gross Profit'))
+        selling_exp = to_num(row_raw.get('Selling Expenses'))
+        admin_exp = to_num(row_raw.get('General & Admin Expenses'))
+        operating_profit = to_num(row_raw.get('Operating Profit/Loss'))
+        interest_exp = to_num(row_raw.get('Interest Expenses', row_raw.get('Interest Expense')))
+        profit_before_tax = to_num(row_raw.get('Profit before tax', row_raw.get('Net Profit/Loss before tax')))
+        tax_expense = to_num(row_raw.get('Business income tax - current')) + to_num(row_raw.get('Business income tax - deferred'))
+        net_profit = to_num(row_raw.get('Net Profit For the Year'))
+
+        income_items_vi = [
+            'Doanh Thu Thuần', 'Giá Vốn Hàng Bán', 'Lợi Nhuận Gộp',
+            'Chi Phí Bán Hàng', 'Chi Phí Quản Lý', 'Lợi Nhuận Hoạt Động',
+            'Chi Phí Lãi Vay', 'Lợi Nhuận Trước Thuế', 'Chi Phí Thuế', 'Lợi Nhuận Ròng'
+        ]
+        income_items_en = [
+            'Net Revenue', 'Cost of Goods Sold', 'Gross Profit',
+            'Selling Expenses', 'Administrative Expenses', 'Operating Profit',
+            'Interest Expenses', 'Profit Before Tax', 'Tax Expense', 'Net Profit'
+        ]
+        values = [revenue, cogs, gross_profit, selling_exp, admin_exp,
+                  operating_profit, interest_exp, profit_before_tax, tax_expense, net_profit]
+        percentages = []
+        for v in values:
+            if revenue != 0:
+                pct = v / revenue
+            else:
+                pct = 0.0
+            percentages.append(f"{pct*100:.1f}%")
+        header_key = get_text("stress_table_scenario", lang) if lang == 'en' else "Chỉ Tiêu"
+        income_df = pd.DataFrame({
+            header_key: income_items_en if lang == 'en' else income_items_vi,
+            ("Value (Bn VND)" if lang == 'en' else "Giá Trị (Tỷ VND)"): [fmt_val(v) for v in values],
+            ("% of Revenue" if lang == 'en' else "% Doanh Thu"): percentages
+        })
+        st.dataframe(income_df, use_container_width=True, hide_index=True, key="finance_income_table")
+
+        # Show trend of revenue and net profit across years
+        trend_years = ticker_raw['Year'].astype(str).tolist()
+        trend_rev = [to_num(v) for v in ticker_raw.get('Net Sales', ticker_raw.get('Revenue', ticker_raw.get('Revenue (Bn. VND)', np.nan)))]
+        trend_np = [to_num(v) for v in ticker_raw.get('Net Profit For the Year', ticker_raw.get('Net Profit', np.nan))]
+        fig = go.Figure(data=[
+            go.Bar(name=get_text('metric_revenue', lang), x=trend_years, y=trend_rev),
+            go.Bar(name=get_text('metric_net_profit', lang), x=trend_years, y=trend_np)
+        ])
+        fig.update_layout(
+            title=("Xu Hướng Doanh Thu & Lợi Nhuận" if lang == 'vi' else "Revenue & Net Profit Trend"),
+            barmode='group',
+            height=350
         )
-    else:
-        for line in notes:
-            st.write(f"- {line}")
+        st.plotly_chart(fig, use_container_width=True, key="finance_income_chart")
+
+        # Display multi‑year income summary table
+        multi_income = pd.DataFrame({
+            'Year': ticker_raw['Year'],
+            ("Net Revenue" if lang == 'en' else "Doanh Thu"): trend_rev,
+            ("Net Profit" if lang == 'en' else "Lợi Nhuận Ròng"): trend_np
+        })
+        st.markdown("**" + ("Dữ liệu nhiều năm" if lang=='vi' else "Multi‑year Data") + "**")
+        st.dataframe(multi_income, use_container_width=True, hide_index=True, key="income_multiyear_table")
+
+    # ================ TAB 2: BALANCE SHEET ===================
+    with tab2:
+        st.markdown(f"### {get_text('balance_sheet_title', lang)}")
+        # Assets
+        assets_items_vi = ['Tiền Mặt', 'Phải Thu', 'Hàng Tồn Kho', 'Tài Sản Lưu Động', 'Tài Sản Cố Định', 'Đầu Tư Dài Hạn', 'Tổng Tài Sản']
+        assets_items_en = ['Cash', 'Accounts Receivable', 'Inventory', 'Current Assets', 'Fixed Assets', 'Long-term Investments', 'Total Assets']
+        cash = to_num(row_raw.get('Cash and cash equivalents (Bn. VND)'))
+        receivables = to_num(row_raw.get('Accounts receivable (Bn. VND)'))
+        inventory = to_num(row_raw.get('Net Inventories', row_raw.get('Inventories, Net (Bn. VND)')))
+        current_assets = to_num(row_raw.get('CURRENT ASSETS (Bn. VND)'))
+        fixed_assets = to_num(row_raw.get('Fixed assets (Bn. VND)'))
+        long_inv = to_num(row_raw.get('Long-term investments (Bn. VND)'))
+        total_assets = to_num(row_raw.get('TOTAL ASSETS (Bn. VND)'))
+        assets_values = [cash, receivables, inventory, current_assets, fixed_assets, long_inv, total_assets]
+        assets_df = pd.DataFrame({
+            ('Item' if lang == 'en' else 'Chỉ Tiêu'): assets_items_en if lang == 'en' else assets_items_vi,
+            ('Value (Bn VND)' if lang == 'en' else 'Giá Trị (Tỷ VND)'): [fmt_val(v) for v in assets_values]
+        })
+        # Liabilities and Equity
+        liab_items_vi = ['Vay Ngắn Hạn', 'Vay Dài Hạn', 'Nợ Ngắn Hạn', 'Nợ Dài Hạn', 'Tổng Nợ', 'Vốn Chủ Sở Hữu', 'Tổng Nợ & Vốn']
+        liab_items_en = ['Short-term Borrowings', 'Long-term Borrowings', 'Current Liabilities', 'Long-term Liabilities', 'Total Liabilities', 'Equity', 'Total Liab. & Equity']
+        short_borrow = to_num(row_raw.get('Short-term borrowings (Bn. VND)'))
+        long_borrow = to_num(row_raw.get('Long-term borrowings (Bn. VND)'))
+        current_liab = to_num(row_raw.get('Current liabilities (Bn. VND)'))
+        long_liab = to_num(row_raw.get('Long-term liabilities (Bn. VND)'))
+        total_liab = to_num(row_raw.get('LIABILITIES (Bn. VND)'))
+        equity = to_num(row_raw.get("OWNER'S EQUITY(Bn.VND)"))
+        total_resources = to_num(row_raw.get('TOTAL RESOURCES (Bn. VND)', total_assets))
+        liab_values = [short_borrow, long_borrow, current_liab, long_liab, total_liab, equity, total_resources]
+        liab_df = pd.DataFrame({
+            ('Item' if lang == 'en' else 'Chỉ Tiêu'): liab_items_en if lang == 'en' else liab_items_vi,
+            ('Value (Bn VND)' if lang == 'en' else 'Giá Trị (Tỷ VND)'): [fmt_val(v) for v in liab_values]
+        })
+        col1, col2 = st.columns(2)
+        with col1:
+            st.markdown("**" + ("Assets" if lang == 'en' else "Tài Sản") + "**")
+            st.dataframe(assets_df, use_container_width=True, hide_index=True, key="finance_assets_table")
+        with col2:
+            st.markdown("**" + ("Liabilities & Equity" if lang == 'en' else "Nợ & Vốn Chủ") + "**")
+            st.dataframe(liab_df, use_container_width=True, hide_index=True, key="finance_liab_table")
+        # Multi‑year summary for balance sheet
+        multi_balance = pd.DataFrame({
+            'Year': ticker_raw['Year'],
+            ('Total Assets' if lang == 'en' else 'Tổng Tài Sản'): [to_num(v) for v in ticker_raw.get('TOTAL ASSETS (Bn. VND)', np.nan)],
+            ('Total Liabilities' if lang == 'en' else 'Tổng Nợ'): [to_num(v) for v in ticker_raw.get('LIABILITIES (Bn. VND)', np.nan)],
+            ('Equity' if lang == 'en' else 'Vốn Chủ'): [to_num(v) for v in ticker_raw.get("OWNER'S EQUITY(Bn.VND)", np.nan)]
+        })
+        st.markdown("**" + ("Dữ liệu nhiều năm" if lang=='vi' else "Multi‑year Data") + "**")
+        st.dataframe(multi_balance, use_container_width=True, hide_index=True, key="balance_multiyear_table")
+
+    # ================ TAB 3: CASH FLOW ===================
+    with tab3:
+        st.markdown(f"### {get_text('cashflow_statement_title', lang)}")
+        # Compute cash flow items
+        cf_items_vi = ['Lợi Nhuận Ròng', 'Khấu Hao & Khấu Hao', 'Thay Đổi Vốn Lưu Động', 'Lưu Chuyển từ Hoạt Động', 'Chi Đầu Tư Cố Định', 'Lưu Chuyển từ Đầu Tư', 'Phát Hành Cổ Phiếu', 'Trả Nợ Vay', 'Lưu Chuyển từ Tài Chính', 'Thay Đổi Tiền Mặt']
+        cf_items_en = ['Net Profit', 'Depreciation & Amortization', 'Change in Working Capital', 'Operating Cash Flow', 'Capital Expenditures', 'Investing Cash Flow', 'Equity Issuance', 'Debt Repayment', 'Financing Cash Flow', 'Net Change in Cash']
+        net_profit_cf = net_profit  # reuse from income statement
+        depreciation = to_num(row_raw.get('Depreciation and Amortisation'))
+        # Change in working capital: sum of receivables/inventories/payables/prepaid changes if available
+        wc_change = (to_num(row_raw.get('Increase/Decrease in receivables')) +
+                     to_num(row_raw.get('Increase/Decrease in inventories')) +
+                     to_num(row_raw.get('Increase/Decrease in payables')) +
+                     to_num(row_raw.get('Increase/Decrease in prepaid expenses')))
+        ocf = to_num(row_raw.get('Net cash inflows/outflows from operating activities'))
+        capex = to_num(row_raw.get('Purchase of fixed assets'))
+        investing_cf = to_num(row_raw.get('Net Cash Flows from Investing Activities'))
+        equity_issue = to_num(row_raw.get('Increase in charter captial'))
+        debt_repay = to_num(row_raw.get('Repayment of borrowings'))
+        financing_cf = to_num(row_raw.get('Cash flows from financial activities'))
+        net_change_cash = to_num(row_raw.get('Net increase/decrease in cash and cash equivalents'))
+        cf_values = [net_profit_cf, depreciation, wc_change, ocf, capex, investing_cf, equity_issue, debt_repay, financing_cf, net_change_cash]
+        cf_df = pd.DataFrame({
+            ('Item' if lang == 'en' else 'Chỉ Tiêu'): cf_items_en if lang == 'en' else cf_items_vi,
+            ('Value (Bn VND)' if lang == 'en' else 'Giá Trị (Tỷ VND)'): [fmt_val(v) for v in cf_values]
+        })
+        st.dataframe(cf_df, use_container_width=True, hide_index=True, key="finance_cashflow_table")
+        # Waterfall chart
+        figcf = go.Figure(go.Waterfall(
+            x=["Operating", "Investing", "Financing", "Net Change"],
+            y=[ocf, investing_cf, financing_cf, net_change_cash],
+            connector={"line": {"color": "rgba(63, 63, 63, 0.5)"}},
+            decreasing={"marker": {"color": "#E24A33"}},
+            increasing={"marker": {"color": "#1F77B4"}},
+            totals={"marker": {"color": "#22C55E"}}
+        ))
+        figcf.update_layout(
+            title=("Lưu Chuyển Tiền Tệ" if lang == 'vi' else 'Cash Flow Waterfall'),
+            height=350
+        )
+        st.plotly_chart(figcf, use_container_width=True, key="finance_cashflow_chart")
+        # Multi‑year cash flow summary
+        multi_cf = pd.DataFrame({
+            'Year': ticker_raw['Year'],
+            ('Operating CF' if lang == 'en' else 'Lưu Chuyển Hoạt Động'): [to_num(v) for v in ticker_raw.get('Net cash inflows/outflows from operating activities', np.nan)],
+            ('Investing CF' if lang == 'en' else 'Lưu Chuyển Đầu Tư'): [to_num(v) for v in ticker_raw.get('Net Cash Flows from Investing Activities', np.nan)],
+            ('Financing CF' if lang == 'en' else 'Lưu Chuyển Tài Chính'): [to_num(v) for v in ticker_raw.get('Cash flows from financial activities', np.nan)],
+            ('Net Change Cash' if lang == 'en' else 'Thay Đổi Tiền Mặt'): [to_num(v) for v in ticker_raw.get('Net increase/decrease in cash and cash equivalents', np.nan)]
+        })
+        st.markdown("**" + ("Dữ liệu nhiều năm" if lang=='vi' else "Multi‑year Data") + "**")
+        st.dataframe(multi_cf, use_container_width=True, hide_index=True, key="cashflow_multiyear_table")
+
+    # ================ TAB 4: FINANCIAL INDICATORS ===================
+    with tab4:
+        st.markdown(f"### {get_text('financial_indicators_title', lang)}")
+        # List of 19 indicators to display
+        ind_list = [
+            'Current_Ratio','Quick_Ratio','Working_Capital_to_Total_Assets','Debt_to_Assets','Debt_to_Equity',
+            'Equity_to_Liabilities','Long_Term_Debt_to_Assets','Receivables_Turnover','Inventory_Turnover','Asset_Turnover',
+            'ROA','ROE','EBIT_to_Assets','Operating_Income_to_Debt','Net_Profit_Margin','Gross_Margin','Interest_Coverage','EBITDA_to_Interest','Total_Debt_to_EBITDA'
+        ]
+        ind_names_vi = [
+            'Tỷ Lệ Thanh Khoản Hiện Tại', 'Tỷ Lệ Thanh Khoản Nhanh', 'Vốn Lưu Động/Tổng Tài Sản', 'Tỷ Lệ Nợ/Tài Sản', 'Tỷ Lệ Nợ/Vốn Chủ',
+            'Vốn Chủ/Nợ', 'Nợ Dài Hạn/Tài Sản', 'Vòng Quay Phải Thu', 'Vòng Quay Tồn Kho', 'Vòng Quay Tài Sản',
+            'ROA', 'ROE', 'EBIT/Tài Sản', 'Thu Nhập Hoạt Động/Nợ', 'Biên Lợi Nhuận Ròng', 'Biên Lợi Nhuận Gộp', 'Khả Năng Chi Trả Lãi', 'EBITDA/Lãi Vay', 'Tổng Nợ/EBITDA'
+        ]
+        ind_names_en = [
+            'Current Ratio', 'Quick Ratio', 'Working Capital/Total Assets', 'Debt/Assets', 'Debt/Equity',
+            'Equity/Liabilities', 'Long-term Debt/Assets', 'Receivables Turnover', 'Inventory Turnover', 'Asset Turnover',
+            'ROA', 'ROE', 'EBIT/Assets', 'Operating Income/Debt', 'Net Profit Margin', 'Gross Margin', 'Interest Coverage', 'EBITDA/Interest', 'Total Debt/EBITDA'
+        ]
+        ind_values = []
+        ind_eval = []
+        for idx, col in enumerate(ind_list):
+            val = row_feat.get(col)
+            ind_values.append(val)
+            ind_eval.append(evaluate_ratio(col, val))
+        # Format values: percentages vs ratios
+        display_values = []
+        for col, val in zip(ind_list, ind_values):
+            if col in ['ROA','ROE','Net_Profit_Margin','Gross_Margin','Working_Capital_to_Total_Assets','Debt_to_Assets','Debt_to_Equity','Equity_to_Liabilities','Long_Term_Debt_to_Assets']:
+                # show as percentage if between -1 and 1
+                display_values.append("-" if val is None or not np.isfinite(val) else f"{val*100:.2f}%")
+            else:
+                display_values.append("-" if val is None or not np.isfinite(val) else f"{val:,.2f}")
+        indicators_df = pd.DataFrame({
+            ('Indicator' if lang == 'en' else 'Chỉ Số'): ind_names_en if lang == 'en' else ind_names_vi,
+            ('Value' if lang == 'en' else 'Giá Trị'): display_values,
+            ('Evaluation' if lang == 'en' else 'Đánh Giá'): ind_eval
+        })
+        st.dataframe(indicators_df, use_container_width=True, hide_index=True, key="finance_indicators_table")
+        # Multi‑year indicators
+        multi_ind = ticker_feat[['Year'] + ind_list].copy()
+        # Format each indicator for display
+        for col in ind_list:
+            multi_ind[col] = multi_ind[col].apply(lambda x: np.nan if x is None or (not np.isfinite(x)) else x)
+        st.markdown("**" + ("Dữ liệu nhiều năm" if lang=='vi' else "Multi‑year Data") + "**")
+        st.dataframe(multi_ind, use_container_width=True, hide_index=True, key="indicators_multiyear_table")
+
+    # ================ TAB 5: NOTES & ASSESSMENT ===================
+    with tab5:
+        st.markdown(f"### {get_text('notes_assessment_title', lang)}")
+        # Compute YoY changes for revenue and net profit
+        prev_raw = raw_df[(raw_df['Ticker'].astype(str) == str(ticker)) & (raw_df['Year'] == year - 1)]
+        if not prev_raw.empty:
+            prev_row = prev_raw.iloc[0]
+            prev_rev = to_num(prev_row.get('Net Sales', prev_row.get('Revenue', prev_row.get('Revenue (Bn. VND)', np.nan))))
+            prev_np = to_num(prev_row.get('Net Profit For the Year', prev_row.get('Net Profit', np.nan)))
+            rev_growth = (revenue - prev_rev) / prev_rev if prev_rev != 0 else np.nan
+            np_growth = (net_profit - prev_np) / prev_np if prev_np != 0 else np.nan
+        else:
+            rev_growth = np.nan
+            np_growth = np.nan
+        # Compose summary sentences
+        if lang == 'vi':
+            summary_lines = []
+            # Revenue change
+            if np.isfinite(rev_growth):
+                if rev_growth >= 0:
+                    summary_lines.append(f"- Doanh thu tăng {rev_growth*100:.1f}% so với năm trước, đạt {fmt_val(revenue)} tỷ VND")
+                else:
+                    summary_lines.append(f"- Doanh thu giảm {abs(rev_growth)*100:.1f}% so với năm trước, còn {fmt_val(revenue)} tỷ VND")
+            # Net profit change
+            if np.isfinite(np_growth):
+                if np_growth >= 0:
+                    summary_lines.append(f"- Lợi nhuận ròng tăng {np_growth*100:.1f}% lên {fmt_val(net_profit)} tỷ VND")
+                else:
+                    summary_lines.append(f"- Lợi nhuận ròng giảm {abs(np_growth)*100:.1f}% xuống còn {fmt_val(net_profit)} tỷ VND")
+            summary_lines.append(f"- Lưu chuyển tiền từ hoạt động là {fmt_val(ocf)} tỷ VND")
+            st.markdown("**Tóm Tắt Hoạt Động:**\n" + "\n".join(summary_lines))
+            # Basic analysis and risk notes
+            st.markdown("**Phân Tích Kết Quả:**\n" +
+                        f"- Biên lợi nhuận ròng {display_values[14]} cho thấy hiệu quả kinh doanh.\n" +
+                        f"- Tỷ lệ nợ/tài sản {display_values[3]} và nợ/vốn {display_values[4]} phản ánh cơ cấu vốn.\n" +
+                        f"- Tỷ lệ thanh khoản hiện tại {display_values[0]} và thanh khoản nhanh {display_values[1]} đánh giá khả năng thanh toán.")
+            st.markdown("**Rủi Ro Chính:**\n" +
+                        "- Rủi ro thanh khoản khi tỷ lệ thanh khoản thấp\n" +
+                        "- Biến động lợi nhuận do chi phí tài chính và thị trường\n" +
+                        "- Sức ép cạnh tranh trong ngành và biến động vĩ mô")
+            st.markdown("**Dự Báo:**\n" +
+                        "- Doanh thu và lợi nhuận dự kiến biến động theo xu hướng ngành\n" +
+                        "- Công ty cần tối ưu cấu trúc vốn và kiểm soát chi phí để cải thiện tỷ suất sinh lời\n" +
+                        "- Nhu cầu vốn lưu động có thể tăng khi mở rộng sản xuất")
+        else:
+            summary_lines = []
+            if np.isfinite(rev_growth):
+                if rev_growth >= 0:
+                    summary_lines.append(f"- Revenue increased {rev_growth*100:.1f}% YoY to {fmt_val(revenue)} bn VND")
+                else:
+                    summary_lines.append(f"- Revenue decreased {abs(rev_growth)*100:.1f}% YoY to {fmt_val(revenue)} bn VND")
+            if np.isfinite(np_growth):
+                if np_growth >= 0:
+                    summary_lines.append(f"- Net profit increased {np_growth*100:.1f}% to {fmt_val(net_profit)} bn VND")
+                else:
+                    summary_lines.append(f"- Net profit decreased {abs(np_growth)*100:.1f}% to {fmt_val(net_profit)} bn VND")
+            summary_lines.append(f"- Operating cash flow was {fmt_val(ocf)} bn VND")
+            st.markdown("**Business Summary:**\n" + "\n".join(summary_lines))
+            st.markdown("**Results Analysis:**\n" +
+                        f"- Net profit margin of {display_values[14]} indicates operational efficiency.\n" +
+                        f"- Debt/Assets of {display_values[3]} and Debt/Equity of {display_values[4]} reflect capital structure.\n" +
+                        f"- Current and quick ratios of {display_values[0]} and {display_values[1]} assess liquidity.")
+            st.markdown("**Key Risks:**\n" +
+                        "- Liquidity risk if current ratios are low\n" +
+                        "- Earnings volatility due to financial costs and market conditions\n" +
+                        "- Competitive pressure in the industry and macroeconomic headwinds")
+            st.markdown("**Outlook:**\n" +
+                        "- Revenue and profit expected to follow industry trends\n" +
+                        "- Company should optimize capital structure and control costs to improve profitability\n" +
+                        "- Working capital needs may rise with production expansion")

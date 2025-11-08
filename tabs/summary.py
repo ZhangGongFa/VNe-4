@@ -1,17 +1,37 @@
 """
-Summary & Risk Assessment Tab
-=============================
+Summary Tab
+------------
 
-This module implements the Summary tab, which provides a concise
-overview of the selected company’s financial performance and default
-probability.  The view contains three sub–sections: a summary
-dashboard with financial KPIs and a PD gauge; a detailed risk
-assessment with classification bands; and model details including
-feature importances.  The PD calculation follows the multi–factor
-approach used in the upgraded project, incorporating both the base
-model probability and a set of heuristics that adjust for company size,
-leverage, profitability, liquidity and governance.  Translation into
-Vietnamese and English is performed via helper functions.
+This module provides the **Summary** view for the upgraded PD scoring
+application.  Its purpose is to mirror the look and feel of the original
+project’s summary section found in ``PD-monotonic-constraints-main.zip``.
+Unlike the financial and sentiment tabs, which are handled elsewhere,
+this module focuses solely on presenting a consolidated overview of
+company financials, default probability (PD) and model explainability.
+
+The summary is divided into four sections:
+
+1. **Company Financial Overview** – A multi‑year chart of revenue and
+   net profit, a capital structure pie chart (debt versus equity) and
+   a simple table of key financial ratios.
+2. **Default Probability (PD) & Policy Band** – The base PD from the
+   model is adjusted for leverage, profitability, liquidity, company
+   size, sector tilt and exchange listing.  The final PD and policy
+   band are displayed along with a gauge and legend.
+3. **Model Explainability (SHAP)** – Top feature contributions are
+   visualised if the model exposes SHAP values; otherwise a message
+   indicates SHAP is unavailable.
+4. **Stress Testing – Sector & Systemic Impacts** – Illustrative PD
+   values under preset sector and systemic stress scenarios are shown
+   relative to the baseline PD.
+
+The implementation deliberately avoids any dependencies on the
+finance/sentiment modules and does not use the language translation
+utilities.  All labels are presented in English to match the original
+dashboard.  Should you wish to localise the text, you may wrap static
+strings in a translation function or import ``get_text`` from
+``utils_new.lang`` and adjust accordingly.
+
 """
 
 from __future__ import annotations
@@ -21,515 +41,631 @@ import pandas as pd
 import streamlit as st
 import plotly.graph_objects as go
 
-from utils_new.model_scoring import model_feature_names
+# Import model_feature_names and explain_shap.  We deliberately do not
+# import load_train_reference here because some deployments of the
+# `utils_new.model_scoring` module do not expose that function.  The
+# quantile computation inside `_compute_pd_base` will handle its
+# absence gracefully.
+from utils_new.model_scoring import model_feature_names, explain_shap
 
-# -----------------------------------------------------------------------------
-# Helper functions
-# -----------------------------------------------------------------------------
-
-def _extract_value(row: pd.Series, cols: list[str]) -> float | None:
-    """Extract the first valid numeric value from potential column names."""
-    for col in cols:
-        if col in row and pd.notna(row[col]):
-            try:
-                val = row[col]
-                if isinstance(val, str):
-                    val = val.replace(",", "")
-                return float(val)
-            except Exception:
-                pass
-    return np.nan
+__all__ = ["render"]
 
 
-def _safe_div(a: float | None, b: float | None) -> float | np.nan:
-    """Safely divide a by b, returning NaN if invalid."""
+def _bucketize_sector(sector_raw: str) -> str:
+    """Coarse mapping of free‑form sector strings into standard buckets.
+
+    Parameters
+    ----------
+    sector_raw : str
+        The raw sector name as contained in the dataset.
+
+    Returns
+    -------
+    str
+        One of a limited set of sectors such as ``"Real Estate"``,
+        ``"Materials"``, ``"Technology"``, etc.  If no match is found,
+        ``"Other"`` is returned.
+    """
+    s = (sector_raw or "").lower()
+    if any(k in s for k in ["real estate", "property", "construction"]):
+        return "Real Estate"
+    if any(k in s for k in ["steel", "material", "basic res", "cement", "mining", "metal"]):
+        return "Materials"
+    if any(k in s for k in ["energy", "oil", "gas", "coal", "petro"]):
+        return "Energy"
+    if any(k in s for k in ["bank", "finance", "insurance", "securities"]):
+        return "Financials"
+    if any(k in s for k in ["software", "it", "tech", "information"]):
+        return "Technology"
+    if any(k in s for k in ["utility", "power", "water", "electric"]):
+        return "Utilities"
+    if any(k in s for k in ["staple", "food", "beverage", "agri"]):
+        return "Consumer Staples"
+    if any(k in s for k in ["retail", "consumer", "discretionary", "apparel", "leisure"]):
+        return "Consumer Discretionary"
+    if any(k in s for k in ["industrial", "manufacturing", "machinery"]):
+        return "Industrials"
+    if "tele" in s:
+        return "Telecom"
+    if any(k in s for k in ["health", "pharma", "hospital"]):
+        return "Healthcare"
+    if any(k in s for k in ["transport", "shipping", "airline", "airport", "logistics"]):
+        return "Transportation"
+    if any(k in s for k in ["hotel", "hospitality", "tourism", "travel"]):
+        return "Hospitality & Travel"
+    if any(k in s for k in ["auto", "automobile", "motor"]):
+        return "Automotive"
+    if any(k in s for k in ["fish", "seafood"]):
+        return "Agriculture & Fisheries"
+    return "Other"
+
+
+def _safe_div(a: float | None, b: float | None) -> float:
+    """Safely divide two values returning ``np.nan`` if invalid."""
     try:
-        if b is None or (isinstance(b, float) and not np.isfinite(b)) or b == 0:
+        if b is None or (isinstance(b, float) and not np.isfinite(b)) or float(b) == 0.0:
             return np.nan
         return float(a) / float(b)
     except Exception:
         return np.nan
 
 
-def _fmt_money(x: float | None) -> str:
-    return "-" if (x is None or not np.isfinite(x)) else f"{x:,.1f}"
-
-
 def _fmt_ratio(x: float | None) -> str:
+    """Format a numeric ratio as a percentage string for display."""
     if x is None or not np.isfinite(x):
         return "-"
-    return f"{x:.2%}" if -1.5 <= float(x) <= 1.5 else f"{x:,.3f}"
+    return f"{x:.2%}"
 
 
-# -----------------------------------------------------------------------------
-# Translation dictionaries for summary
-# -----------------------------------------------------------------------------
-
-VI = {
-    "summary_dashboard": "Dashboard tóm tắt",
-    "risk_assessment": "Đánh giá rủi ro",
-    "model_details": "Chi tiết mô hình",
-    "total_assets": "Tổng tài sản",
-    "revenue": "Doanh thu",
-    "net_profit": "Lợi nhuận ròng",
-    "roe": "ROE",
-    "pd": "Xác suất vỡ nợ",
-    "policy_band": "Phân loại",
-    "low": "Thấp",
-    "medium": "Trung bình",
-    "high": "Cao",
-    "year": "Năm",
-    "value": "Giá trị",
-    "metric": "Chỉ số",
-    "company": "Công ty",
-    "industry_average": "Trung bình ngành",
-    "assessment": "Đánh giá",
-    "risk_categories": "Danh mục rủi ro",
-    "score": "Điểm",
-    "description": "Mô tả",
-    "risk_overview": "Tổng quan rủi ro",
-    "risk_comments": "Ghi chú rủi ro & khuyến nghị",
-    "no_data": "Không có dữ liệu cho mã cổ phiếu và năm đã chọn.",
-    "pd_gauge_title": "Chỉ báo PD",
-    "model_type": "Loại mô hình",
-    "algorithm": "Thuật toán",
-    "num_features": "Số đặc trưng",
-    "accuracy": "Độ chính xác",
-    "auc": "AUC",
-    "precision": "Precision",
-    "recall": "Recall",
-    "f1": "F1-score",
-    "feature_importance": "Mức độ quan trọng của đặc trưng",
-    "risk_band_legend": "Cấp độ rủi ro: Thấp (<20%), Trung bình (20%-50%), Cao (>50%)",
-    "pd_value": "PD (điều chỉnh)",
-    "policy_band_value": "Cấp độ rủi ro",
-}
-
-EN = {
-    "summary_dashboard": "Summary Dashboard",
-    "risk_assessment": "Risk Assessment",
-    "model_details": "Model Details",
-    "total_assets": "Total Assets",
-    "revenue": "Revenue",
-    "net_profit": "Net Profit",
-    "roe": "ROE",
-    "pd": "Probability of Default",
-    "policy_band": "Risk Band",
-    "low": "Low",
-    "medium": "Medium",
-    "high": "High",
-    "year": "Year",
-    "value": "Value",
-    "metric": "Metric",
-    "company": "Company",
-    "industry_average": "Industry Average",
-    "assessment": "Assessment",
-    "risk_categories": "Risk Categories",
-    "score": "Score",
-    "description": "Description",
-    "risk_overview": "Risk Overview",
-    "risk_comments": "Risk commentary & recommendations",
-    "no_data": "No data found for the selected ticker and year.",
-    "pd_gauge_title": "PD Indicator",
-    "model_type": "Model Type",
-    "algorithm": "Algorithm",
-    "num_features": "Number of features",
-    "accuracy": "Accuracy",
-    "auc": "AUC",
-    "precision": "Precision",
-    "recall": "Recall",
-    "f1": "F1-score",
-    "feature_importance": "Feature Importance",
-    "risk_band_legend": "Risk levels: Low (<20%), Medium (20%-50%), High (>50%)",
-    "pd_value": "PD (post-adjustment)",
-    "policy_band_value": "Risk level",
-}
+def _fmt_money(x: float | None) -> str:
+    """Format a monetary figure with thousands separators."""
+    if x is None or not np.isfinite(x):
+        return "-"
+    return f"{x:,.2f}"
 
 
-def tr(key: str, lang: str) -> str:
-    """Translate a key based on the language setting."""
-    return VI.get(key, key) if lang == 'vi' else EN.get(key, key)
+def _extract_first(row: pd.Series, cols: list[str], default: float | None = np.nan) -> float:
+    """Extract the first non‑null numeric value from a list of column candidates."""
+    for c in cols:
+        if c in row and pd.notna(row[c]):
+            val = row[c]
+            try:
+                if isinstance(val, str):
+                    val = val.replace(",", "")
+                return float(val)
+            except Exception:
+                continue
+    return default
 
 
-# -----------------------------------------------------------------------------
-# PD calculation helpers (adapted from upgraded project)
-# -----------------------------------------------------------------------------
-
-def _logit(p: float, eps: float = 1e-9) -> float:
-    p = float(np.clip(p, eps, 1 - eps))
-    return np.log(p / (1 - p))
-
-
-def _sigmoid(z: float) -> float:
-    z = float(z)
-    # avoid overflow
-    if z >= 35:
-        return 1.0
-    if z <= -35:
-        return 0.0
-    return 1.0 / (1.0 + np.exp(-z))
+def _get_from_row(row: pd.Series, keys: list[str], default: float | None = np.nan) -> float:
+    """Helper to extract a value from a row given several possible column names."""
+    for k in keys:
+        if k in row.index and pd.notna(row.get(k)):
+            try:
+                return float(row.get(k))
+            except Exception:
+                return default
+    return default
 
 
-def compute_pd(row_model: pd.Series, row_raw: pd.Series, model, final_features: list,
-               sector_bucket: str, exchange: str, assets_raw: float, revenue_raw: float,
-               roa: float, roe: float, dta: float, dte: float,
-               current_ratio: float, quick_ratio: float) -> tuple[float, str, float]:
+def _compute_pd_base(row_model: pd.Series, row_raw: pd.Series, model, final_features: list,
+                     sector_bucket: str, exchange: str, assets_raw: float, revenue_raw: float,
+                     roa: float, roe: float, dta: float, dte: float,
+                     current_ratio: float, quick_ratio: float) -> tuple[float, str, float]:
+    """Compute adjusted PD, risk band and floor following the original logic.
+
+    This function is largely ported from the original ``app.py``.  It
+    obtains a base probability from the model and then applies additive
+    adjustments based on leverage, profitability, liquidity, size,
+    sector tilt and exchange listing.  Final PD is clipped to a floor
+    and cap.  Returns `(pd_final, band_label, pd_floor)` where
+    ``band_label`` is one of ``Low``, ``Medium`` or ``High``.
     """
-    Compute the final PD and risk band using heuristics.  Returns (pd_final, band, pd_floor).
-    """
-    # Base PD from model
-    import pandas as pd  # local import to avoid dependency issues
-    # Align feature names and compute base PD
-    feats = list(model_feature_names(model) or final_features)
+    import pandas as pd  # Local import to avoid circular dependencies
+
+    # Align feature vector for model input
+    feats = model_feature_names(model) or final_features
     data = {f: float(row_model.get(f, 0.0)) for f in feats}
     X = pd.DataFrame([data], columns=feats)
+    # Base PD from model
     if hasattr(model, "predict_proba"):
         pd_model = float(model.predict_proba(X)[:, 1][0])
     else:
         pd_model = float(model.predict(X)[0])
-    # Configuration values (simplified from full config)
+    # Logit and sigmoid helpers
+    def _logit(p: float, eps: float = 1e-9) -> float:
+        p = float(np.clip(p, eps, 1 - eps))
+        return np.log(p / (1 - p))
+    def _sigmoid(z: float) -> float:
+        z = float(z)
+        if z >= 35:
+            return 1.0
+        if z <= -35:
+            return 0.0
+        return 1.0 / (1.0 + np.exp(-z))
+    # Fixed policy cutoffs
     LOW_CUT, MED_CUT = 0.20, 0.50
-    # Heuristic adjustments
-    # base logit
+    # Define overrides for specific tickers (copy from original app)
+    TICKER_OVERRIDES: dict[str, dict[str, float]] = {
+        "HAG": {"logit_boost": 2.20, "severity_boost": 0.50, "pd_floor": 0.45},
+        "ROS": {"logit_boost": 1.60, "severity_boost": 0.40, "pd_floor": 0.30},
+    }
+    # PD configuration (sector and financial adjustments)
+    PD_CFG = {
+        "exchange_logit_mult": {"UPCOM": 1.10, "HNX": 0.45, "HOSE": 0.00, "HSX": 0.00, "__default__": 0.20},
+        "size": {"assets_q40": 0.35, "revenue_q40": 0.20},
+        "leverage": {"dta_hi": 0.50, "dte_hi": 0.40, "netde_hi": 0.35},
+        "profitability": {"roa_neg": 0.50, "roe_neg": 0.35, "npm_neg": 0.30, "rev_cagr_neg": 0.25},
+        "liquidity": {"cr_low": 0.25, "qr_low": 0.20},
+        "governance": {"auditor_non_big4": 0.25, "opinion_qualified": 0.70, "filing_delay": 0.25},
+        "sector_tilt": {
+            "Real Estate": 0.60, "Materials": 0.25, "Consumer Discretionary": 0.15,
+            "Financials": 0.00, "Utilities": -0.05, "Technology": 0.00, "__default__": 0.05
+        },
+        "pd_floor": {"UPCOM": 0.15, "HNX": 0.08, "HOSE": 0.03, "HSX": 0.03, "__default__": 0.05},
+        "pd_cap": {"default": 0.98},
+    }
+    # Helper to extract values from rows (copied from original app)
+    def _get(sr: pd.Series, keys: list[str], default_val: float = np.nan) -> float:
+        for k in keys:
+            if k in sr.index and pd.notna(sr.get(k)):
+                try:
+                    return float(sr.get(k))
+                except Exception:
+                    return default_val
+        return default_val
+    # Additional signals from feature and raw rows
+    npm = _get(row_model, ["Net_Profit_Margin", "net_profit_margin"])
+    rev_cagr3y = _get(row_model, ["Revenue_CAGR_3Y", "revenue_cagr_3y", "sales_cagr_3y"])
+    nde = _get(row_model, ["Net_Debt_to_Equity", "net_debt_to_equity"])
+    auditor = str(_get(row_raw, ["Auditor", "Audit_Firm", "Auditor_Name"], "") or "")
+    opinion = str(_get(row_raw, ["Audit_Opinion", "Opinion"], "") or "")
+    filing_delay = _get(row_raw, ["Filing_Delay_Days", "Filing_Delay"], np.nan)
+    # Quantile thresholds from training reference
+    # Attempt to compute quantiles from the training reference.  Not all
+    # deployments bundle ``load_train_reference`` so we handle missing
+    # imports gracefully.  If unavailable, the quantiles remain NaN and
+    # the size flags will not trigger.
+    try:
+        # Import within the function to avoid module load failure at import time.
+        from utils_new.model_scoring import load_train_reference  # type: ignore
+        ref_df = load_train_reference()
+        ref_use = ref_df if isinstance(ref_df, pd.DataFrame) else None
+    except Exception:
+        ref_use = None
+    def _q(col: str, q: float, fallback: float = np.nan) -> float:
+        if ref_use is not None and col in ref_use.columns and ref_use[col].notna().any():
+            try:
+                return float(pd.to_numeric(ref_use[col], errors="coerce").quantile(q))
+            except Exception:
+                return fallback
+        return fallback
+    assets_q40 = _q("Total_Assets", 0.40)
+    revenue_q40 = _q("Revenue", 0.40)
+    # Build risk flags
+    flags = {
+        "exch_mult": PD_CFG["exchange_logit_mult"].get(exchange, PD_CFG["exchange_logit_mult"]["__default__"]),
+        "assets_q40": (np.isfinite(assets_raw) and np.isfinite(assets_q40) and assets_raw < assets_q40),
+        "revenue_q40": (np.isfinite(revenue_raw) and np.isfinite(revenue_q40) and revenue_raw < revenue_q40),
+        "dta_hi": (isinstance(dta, float) and dta > 0.70),
+        "dte_hi": (isinstance(dte, float) and dte > 1.5),
+        "netde_hi": (isinstance(nde, float) and nde > 1.0),
+        "roa_neg": (isinstance(roa, float) and roa < 0.0),
+        "roe_neg": (isinstance(roe, float) and roe < 0.0),
+        "npm_neg": (isinstance(npm, float) and npm < 0.0),
+        "rev_cagr_neg": (isinstance(rev_cagr3y, float) and rev_cagr3y < 0.0),
+        "cr_low": (isinstance(current_ratio, float) and current_ratio < 0.9),
+        "qr_low": (isinstance(quick_ratio, float) and quick_ratio < 0.7),
+        "auditor_non_big4": (auditor != "" and not any(k in auditor.lower() for k in ["deloitte", "kpmg", "ey", "ernst", "pwc", "pricewaterhouse"])),
+        "opinion_qualified": (opinion != "" and any(k in opinion.lower() for k in ["qualified", "adverse", "disclaimer"])),
+        "filing_delay": (isinstance(filing_delay, float) and filing_delay >= 20),
+    }
+    # Risk intensity multiplier
+    risk_intensity = 1.0
+    for cond, bump in [
+        ("dta_hi", 0.25), ("dte_hi", 0.20), ("netde_hi", 0.15),
+        ("cr_low", 0.15), ("qr_low", 0.10),
+        ("roa_neg", 0.20), ("roe_neg", 0.10), ("npm_neg", 0.10), ("rev_cagr_neg", 0.10),
+        ("assets_q40", 0.10), ("revenue_q40", 0.05),
+    ]:
+        if flags[cond]:
+            risk_intensity += bump
+    if exchange == "UPCOM":
+        risk_intensity += 0.25
+    risk_intensity = float(np.clip(risk_intensity, 1.0, 2.5))
+    # Base logit and adjustments
     logit0 = _logit(pd_model)
     adj = 0.0
-    # leverage & liquidity flags
-    flags = {
-        "dta_hi": isinstance(dta, float) and dta > 0.70,
-        "dte_hi": isinstance(dte, float) and dte > 1.5,
-        "roa_neg": isinstance(roa, float) and roa < 0.0,
-        "roe_neg": isinstance(roe, float) and roe < 0.0,
-        "cr_low": isinstance(current_ratio, float) and current_ratio < 0.9,
-        "qr_low": isinstance(quick_ratio, float) and quick_ratio < 0.7,
-        "small_assets": np.isfinite(assets_raw) and assets_raw < 50.0,  # threshold arbitrary
-        "small_revenue": np.isfinite(revenue_raw) and revenue_raw < 50.0,
-    }
-    # Add adjustments per flag (simplified weights)
-    if flags["dta_hi"]:
-        adj += 0.50
-    if flags["dte_hi"]:
-        adj += 0.40
-    if flags["roa_neg"]:
-        adj += 0.30
-    if flags["roe_neg"]:
-        adj += 0.20
-    if flags["cr_low"]:
-        adj += 0.15
-    if flags["qr_low"]:
-        adj += 0.10
-    if flags["small_assets"]:
-        adj += 0.10
-    if flags["small_revenue"]:
-        adj += 0.05
-    # Sector tilt (simplified)
-    sector_tilt = {
-        "Real Estate": 0.60, "Materials": 0.25, "Consumer Discretionary": 0.15,
-        "Financials": 0.00, "Utilities": -0.05, "Technology": 0.00,
-    }
-    adj += sector_tilt.get(sector_bucket, 0.05)
-    # Exchange multiplier (simplified)
-    exch_mult = {"UPCOM": 0.25, "HNX": 0.10, "HOSE": 0.00, "HSX": 0.00}
-    adj += exch_mult.get(exchange, 0.15)
-    # Compute final PD with logistic adjustment
-    pd_floor = {"UPCOM": 0.15, "HNX": 0.08, "HOSE": 0.03, "HSX": 0.03}.get(exchange, 0.05)
-    pd_cap = 0.98
+    # Exchange multiplier
+    adj += flags["exch_mult"]
+    # Sector tilt
+    adj += PD_CFG["sector_tilt"].get(sector_bucket, PD_CFG["sector_tilt"]["__default__"])
+    # Group adjustments
+    for group_cfg, conds in [
+        (PD_CFG["size"], ["assets_q40", "revenue_q40"]),
+        (PD_CFG["leverage"], ["dta_hi", "dte_hi", "netde_hi"]),
+        (PD_CFG["profitability"], ["roa_neg", "roe_neg", "npm_neg", "rev_cagr_neg"]),
+        (PD_CFG["liquidity"], ["cr_low", "qr_low"]),
+        (PD_CFG["governance"], ["auditor_non_big4", "opinion_qualified", "filing_delay"]),
+    ]:
+        for c in conds:
+            if flags[c]:
+                adj += group_cfg[c]
+    # Apply per‑ticker overrides if present
+    ov = TICKER_OVERRIDES.get(str(row_model.get("Ticker")), {})
+    adj += float(ov.get("logit_boost", 0.0))
+    risk_intensity += float(ov.get("risk_boost", 0.0))
+    adj *= risk_intensity
+    # PD floor and cap
+    pd_floor = float(ov.get("pd_floor", PD_CFG["pd_floor"].get(exchange, PD_CFG["pd_floor"]["__default__"])))
+    pd_cap = PD_CFG["pd_cap"]["default"]
+    # Final PD
     pd_final = float(np.clip(_sigmoid(logit0 + adj), pd_floor, pd_cap))
-    # Determine band
+    # Risk band classification
     if pd_final < LOW_CUT:
-        band = tr("low", 'en')  # using english key; translation occurs later
+        band_label = "Low"
     elif pd_final < MED_CUT:
-        band = tr("medium", 'en')
+        band_label = "Medium"
     else:
-        band = tr("high", 'en')
-    return pd_final, band, pd_floor
+        band_label = "High"
+    return pd_final, band_label, pd_floor
 
-
-# -----------------------------------------------------------------------------
-# Main render function
-# -----------------------------------------------------------------------------
 
 def render(feats_df: pd.DataFrame, raw_df: pd.DataFrame, ticker: str, year: int,
-           model, thresholds, sector: str, final_features: list, lang: str = 'vi', *args) -> None:
-    """
-    Render the Summary & Risk Assessment tab.
+           model, thresholds, sector: str, final_features: list) -> None:
+    """Render the summary tab for the selected ticker and year.
+
+    This function computes financial metrics, default probability, SHAP
+    explanations and stress test scenarios, then displays them using
+    Streamlit widgets.  It does not modify global state or touch the
+    finance and sentiment tabs.
 
     Parameters
     ----------
     feats_df : pd.DataFrame
-        Feature dataframe used by the model.
+        Dataframe of engineered features used for modelling.
     raw_df : pd.DataFrame
-        Raw financial dataset.
+        Raw financial dataset containing original values.
     ticker : str
-        Selected ticker.
+        The selected stock ticker (as string).
     year : int
-        Selected year.
-    model : sklearn-like object
-        Trained model capable of predict_proba.
+        The selected fiscal year for detailed metrics.
+    model : Any
+        Trained classification/regression model implementing ``predict``
+        and optionally ``predict_proba``.
     thresholds : Any
-        Not used here but retained for compatibility.
+        Not used in this tab, kept for API consistency.
     sector : str
-        Sector of the company (unbucketed text), used to derive risk tilt.
+        Not used (sector is derived from data) but retained for
+        compatibility.
     final_features : list
-        List of final features expected by the model.
-    lang : str
-        Language code ('vi' or 'en').
+        Names of features expected by the model.  Used as a fallback
+        if ``model_feature_names`` returns ``None``.
     """
-    # Filter row data
+    # Filter for selected row in features and raw data
     row_model = feats_df[(feats_df["Ticker"].astype(str) == ticker) & (feats_df["Year"] == year)]
     if row_model.empty:
-        st.warning(tr("no_data", lang))
+        st.warning("No record for selected Ticker & Year.")
         return
     row_model = row_model.iloc[0]
-    row_raw = raw_df[(raw_df["Ticker"].astype(str) == ticker) & (raw_df["Year"] == year)]
-    row_raw = row_raw.iloc[0] if not row_raw.empty else pd.Series(dtype="object")
-    # Determine sector bucket and exchange
+    row_raw_candidates = raw_df[(raw_df["Ticker"].astype(str) == ticker) & (raw_df["Year"] == year)]
+    row_raw = row_raw_candidates.iloc[0] if not row_raw_candidates.empty else pd.Series(dtype="object")
+    # Sector and exchange determination
     sector_raw = str(row_model.get("Sector", "")) if pd.notna(row_model.get("Sector", "")) else ""
-    sector_lower = sector_raw.lower()
-    # bucketize sector (similar rules as in app.py)
-    if any(k in sector_lower for k in ["real estate", "property", "construction"]):
-        sector_bucket = "Real Estate"
-    elif any(k in sector_lower for k in ["steel", "material", "basic res", "cement", "mining", "metal"]):
-        sector_bucket = "Materials"
-    elif any(k in sector_lower for k in ["energy", "oil", "gas", "coal", "petro"]):
-        sector_bucket = "Energy"
-    elif any(k in sector_lower for k in ["bank", "finance", "insurance", "securities"]):
-        sector_bucket = "Financials"
-    elif any(k in sector_lower for k in ["software", "it", "tech", "information"]):
-        sector_bucket = "Technology"
-    elif any(k in sector_lower for k in ["utility", "power", "water", "electric"]):
-        sector_bucket = "Utilities"
-    elif any(k in sector_lower for k in ["staple", "food", "beverage", "agri"]):
-        sector_bucket = "Consumer Staples"
-    elif any(k in sector_lower for k in ["retail", "consumer", "discretionary", "apparel", "leisure"]):
-        sector_bucket = "Consumer Discretionary"
-    elif any(k in sector_lower for k in ["industrial", "manufacturing", "machinery"]):
-        sector_bucket = "Industrials"
-    elif "tele" in sector_lower:
-        sector_bucket = "Telecom"
-    elif any(k in sector_lower for k in ["health", "pharma", "hospital"]):
-        sector_bucket = "Healthcare"
-    elif any(k in sector_lower for k in ["transport", "shipping", "airline", "airport", "logistics"]):
-        sector_bucket = "Transportation"
-    elif any(k in sector_lower for k in ["hotel", "hospitality", "tourism", "travel"]):
-        sector_bucket = "Hospitality & Travel"
-    elif any(k in sector_lower for k in ["auto", "automobile", "motor"]):
-        sector_bucket = "Automotive"
-    elif any(k in sector_lower for k in ["fish", "seafood"]):
-        sector_bucket = "Agriculture & Fisheries"
-    else:
-        sector_bucket = "Other"
+    sector_bucket = _bucketize_sector(sector_raw)
     exchange = (str(row_model.get("Exchange", "")) or "").upper()
-    # Extract raw metrics for PD computation
-    assets_raw = _extract_value(row_raw, ["TOTAL ASSETS (Bn. VND)", "Total_Assets"])
-    equity_raw = _extract_value(row_raw, ["OWNER'S EQUITY(Bn.VND)", "Equity"])
-    revenue_raw = _extract_value(row_raw, ["Net Sales", "Revenue"])
-    net_profit_raw = _extract_value(row_raw, ["Net Profit For the Year", "Net_Profit"])
-    curr_liab = _extract_value(row_raw, ["Current liabilities (Bn. VND)", "Current_Liabilities"])
-    long_liab = _extract_value(row_raw, ["Long-term liabilities (Bn. VND)", "Long_Term_Liabilities"])
-    short_borrow = _extract_value(row_raw, ["Short-term borrowings (Bn. VND)", "Short_Term_Borrowings"])
+    # Extract raw numeric values for metrics
+    assets_raw = _extract_first(row_raw, ["TOTAL ASSETS (Bn. VND)", "Total_Assets"])
+    equity_raw = _extract_first(row_raw, ["OWNER'S EQUITY(Bn.VND)", "Equity"])
+    curr_liab = _extract_first(row_raw, ["Current liabilities (Bn. VND)", "Current_Liabilities"], 0.0)
+    long_liab = _extract_first(row_raw, ["Long-term liabilities (Bn. VND)", "Long_Term_Liabilities"], 0.0)
+    short_bor = _extract_first(row_raw, ["Short-term borrowings (Bn. VND)", "Short_Term_Borrowings"], 0.0)
+    revenue_raw = _extract_first(row_raw, ["Net Sales", "Revenue"])
+    net_profit_raw = _extract_first(row_raw, ["Net Profit For the Year", "Net_Profit"])
     total_liab_raw = (curr_liab or 0.0) + (long_liab or 0.0)
-    debt_raw = _extract_value(row_raw, ["Total_Debt"]) if "Total_Debt" in row_raw.index else (short_borrow or 0.0) + (long_liab or 0.0)
+    debt_raw = (
+        _extract_first(row_raw, ["Total_Debt"])
+        if "Total_Debt" in row_raw.index and pd.notna(row_raw.get("Total_Debt"))
+        else (short_bor or 0.0) + (long_liab or 0.0)
+    )
+    # Additional values for liquidity ratios
+    current_assets = _extract_first(row_raw, ["CURRENT ASSETS (Bn. VND)", "Current_Assets"])
+    cash_val = _extract_first(row_raw, ["Cash and cash equivalents (Bn. VND)", "Cash"])
+    receivables_val = _extract_first(row_raw, ["Accounts receivable (Bn. VND)", "Receivables"])
     # Compute ratios
     roa = _safe_div(net_profit_raw, assets_raw)
     roe = _safe_div(net_profit_raw, equity_raw)
     dta = _safe_div(total_liab_raw, assets_raw)
+    dta = min(max(dta, 0.0), 0.999) if pd.notna(dta) else np.nan
     dte = _safe_div(debt_raw, equity_raw)
-    current_assets = _extract_value(row_raw, ["CURRENT ASSETS (Bn. VND)", "Current_Assets"])
-    cash_val = _extract_value(row_raw, ["Cash and cash equivalents (Bn. VND)", "Cash"])
-    receivables_val = _extract_value(row_raw, ["Accounts receivable (Bn. VND)"])
+    dte = min(max(dte, 0.0), 0.999) if pd.notna(dte) else np.nan
     current_ratio = _safe_div(current_assets, curr_liab)
     quick_ratio = _safe_div((cash_val or 0.0) + (receivables_val or 0.0), curr_liab)
-    # Compute PD and risk band
-    pd_final, band_en, pd_floor = compute_pd(row_model, row_raw, model, final_features,
-                                             sector_bucket, exchange, assets_raw, revenue_raw,
-                                             roa, roe, dta, dte, current_ratio, quick_ratio)
-    # Translate band
-    if lang == 'vi':
-        band = tr(band_en.lower(), lang)
-    else:
-        band = band_en
-    # -------------------------------------------------------------------------
-    # Section 1: Summary Dashboard
-    # -------------------------------------------------------------------------
-    st.subheader(tr("summary_dashboard", lang))
-    st.markdown(f"**{ticker}** | {year} | {sector_raw}")
-    # Key metrics row
-    col1, col2, col3, col4 = st.columns(4)
+    # Compute PD, risk band and floor
+    pd_final, band, pd_floor = _compute_pd_base(
+        row_model, row_raw, model, final_features, sector_bucket, exchange,
+        assets_raw, revenue_raw, roa, roe, dta, dte, current_ratio, quick_ratio
+    )
+    # ------------------------------------------------------------------
+    # Section A: Company Financial Overview
+    st.subheader("A. Company Financial Overview")
+    # Historical revenue & profit series
+    hist = raw_df[raw_df["Ticker"].astype(str) == ticker].copy()
+    hist = hist.sort_values("Year") if not hist.empty else hist
+    col1, col2 = st.columns([2, 1])
     with col1:
-        st.metric(tr("total_assets", lang), _fmt_money(assets_raw))
-    with col2:
-        st.metric(tr("revenue", lang), _fmt_money(revenue_raw))
-    with col3:
-        st.metric(tr("net_profit", lang), _fmt_money(net_profit_raw))
-    with col4:
-        st.metric(tr("roe", lang), _fmt_ratio(roe))
-    st.markdown("---")
-    # Revenue & Net Profit chart and Capital structure
-    col_l, col_r = st.columns([2, 1])
-    hist = raw_df[raw_df["Ticker"].astype(str) == ticker].sort_values("Year")
-    if not hist.empty:
-        rev_series = hist[["Year", "Net Sales", "Net Profit For the Year"]].rename(
-            columns={"Net Sales": "Revenue", "Net Profit For the Year": "Net_Profit"}
-        ).dropna(how="any")
-    else:
-        rev_series = pd.DataFrame()
-    with col_l:
-        if not rev_series.empty:
-            years = rev_series["Year"].astype(int)
-            revenues = rev_series["Revenue"]
-            profits = rev_series["Net_Profit"]
-            fig = go.Figure()
-            fig.add_trace(go.Bar(x=years, y=revenues, name=tr("revenue", lang)))
-            fig.add_trace(go.Scatter(x=years, y=profits, name=tr("net_profit", lang), mode="lines+markers", yaxis="y2"))
-            fig.update_layout(
-                title=tr("revenue", lang) + " & " + tr("net_profit", lang),
-                yaxis=dict(title=tr("revenue", lang)),
-                yaxis2=dict(title=tr("net_profit", lang), overlaying="y", side="right"),
-                height=350,
-                legend=dict(orientation="h", yanchor="bottom", y=-0.25, xanchor="center", x=0.5),
-            )
-            st.plotly_chart(fig, use_container_width=True)
+        if not hist.empty:
+            revenue_cols = [c for c in ["Net Sales", "Revenue"] if c in hist.columns]
+            profit_cols = [c for c in ["Net Profit For the Year", "Net_Profit"] if c in hist.columns]
+            rev_col = revenue_cols[0] if revenue_cols else None
+            prof_col = profit_cols[0] if profit_cols else None
+            if rev_col and prof_col:
+                fig_rev = go.Figure()
+                fig_rev.add_trace(go.Bar(x=hist["Year"], y=hist[rev_col], name="Revenue"))
+                fig_rev.add_trace(go.Scatter(x=hist["Year"], y=hist[prof_col], name="Net Profit", mode="lines+markers", yaxis="y2"))
+                fig_rev.update_layout(
+                    title="Revenue & Net Profit (multi-year)",
+                    yaxis=dict(title="Revenue"),
+                    yaxis2=dict(title="Net Profit", overlaying="y", side="right"),
+                    legend=dict(orientation="h", yanchor="bottom", y=-0.25, xanchor="center", x=0.5),
+                    height=380,
+                )
+                st.plotly_chart(fig_rev, use_container_width=True)
+            else:
+                st.info("No historical series for this company.")
         else:
-            st.info(tr("no_data", lang))
-    with col_r:
-        # Capital structure pie chart (Debt vs Equity)
-        cap_labels = ["Debt" if lang == 'en' else "Nợ", "Equity" if lang == 'en' else "Vốn chủ"]
-        cap_values = [debt_raw if np.isfinite(debt_raw) else 0.0,
-                      equity_raw if np.isfinite(equity_raw) else 0.0]
-        fig2 = go.Figure(data=[go.Pie(labels=cap_labels, values=cap_values, hole=0.5)])
-        fig2.update_layout(title="Capital Structure" if lang == 'en' else "Cơ cấu vốn", height=350)
-        st.plotly_chart(fig2, use_container_width=True)
-    # Key ratios table
+            st.info("No historical series for this company.")
+    with col2:
+        fig_cap = go.Figure(data=[go.Pie(labels=["Total Debt", "Equity"], values=[debt_raw if np.isfinite(debt_raw) else 0.0, equity_raw if np.isfinite(equity_raw) else 0.0], hole=0.5)])
+        fig_cap.update_layout(title="Capital Structure", height=380)
+        st.plotly_chart(fig_cap, use_container_width=True)
+    # Key financial ratios table
+    st.markdown("### Key Financial Ratios")
     key_ratios = pd.DataFrame({
-        tr("metric", lang): ["ROA", "ROE", "Debt/Assets", "Debt/Equity", "Current Ratio", "Quick Ratio"],
-        tr("value", lang): [
-            _fmt_ratio(roa), _fmt_ratio(roe), _fmt_ratio(dta), _fmt_ratio(dte),
-            _fmt_ratio(current_ratio), _fmt_ratio(quick_ratio)
-        ]
+        "Metric": ["ROA", "ROE", "Debt/Assets", "Debt/Equity", "Current Ratio", "Quick Ratio"],
+        "Value": [roa, roe, dta, dte, current_ratio, quick_ratio],
     })
-    st.markdown("### " + tr("risk_overview", lang))
+    key_ratios["Value"] = key_ratios["Value"].apply(_fmt_ratio)
     st.dataframe(key_ratios, use_container_width=True, hide_index=True)
-    # PD gauge & band
-    pd_percent = pd_final * 100
-    # Display PD gauge alongside PD values and band in a single row
-    col_gauge, col_metrics = st.columns([2, 1])
-    with col_gauge:
-        fig_gauge = go.Figure(go.Indicator(
+    # ------------------------------------------------------------------
+    # Section B: Default Probability & Policy Band
+    st.subheader("B. Default Probability (PD) & Policy Band")
+    col_pd1, col_pd2 = st.columns([1, 2])
+    # Left column: metrics and legend
+    with col_pd1:
+        st.metric("PD (multi-factor, post-adj.)", f"{pd_final:.2%}")
+        st.metric("Policy Band", band)
+        # Legend explaining PD bands and thresholds
+        st.markdown(
+            f"""
+            <div style='font-size:12px;'>
+              <span style='display:inline-flex;align-items:center;gap:8px;'>
+                <span style='display:inline-block;width:14px;height:14px;background:#E8F1FB;border:1px solid #cbd5e1;border-radius:3px;'></span>
+                Low &lt; 20%
+                <span style='display:inline-block;width:14px;height:14px;background:#CFE3F7;border:1px solid #cbd5e1;border-radius:3px;margin-left:12px;'></span>
+                Medium &lt; 50%
+                <span style='display:inline-block;width:14px;height:14px;background:#F9E3E3;border:1px solid #cbd5e1;border-radius:3px;margin-left:12px;'></span>
+                High ≥ 50%<br/>
+                Floor/Cap: {pd_floor:.0%}/0.98 • Exchange: {exchange or '-'}
+              </span>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+    # Right column: Gauge chart
+    with col_pd2:
+        gauge_fig = go.Figure(go.Indicator(
             mode="gauge+number",
-            value=pd_percent,
-            number={"suffix": "%"},
+            value=pd_final * 100,
+            number={'suffix': "%"},
             gauge={
                 'axis': {'range': [0, 100]},
                 'bar': {'color': '#1f77b4'},
                 'steps': [
-                    {'range': [0, 20], 'color': 'rgba(34,197,94,0.2)'},
-                    {'range': [20, 50], 'color': 'rgba(251,191,36,0.2)'},
-                    {'range': [50, 100], 'color': 'rgba(239,68,68,0.2)'}
+                    {'range': [0, 20], 'color': '#E8F1FB'},
+                    {'range': [20, 50], 'color': '#CFE3F7'},
+                    {'range': [50, 100], 'color': '#F9E3E3'},
                 ],
+                'threshold': {'line': {'color': 'red', 'width': 3}, 'value': pd_final * 100},
             },
-            title={'text': tr("pd", lang)}
+            title={'text': ""},
         ))
-        st.plotly_chart(fig_gauge, use_container_width=True, height=280)
-    with col_metrics:
-        st.metric(tr("pd_value", lang), f"{pd_final:.2%}")
-        st.metric(tr("policy_band_value", lang), band)
-        st.markdown("<small>" + tr("risk_band_legend", lang) + "</small>", unsafe_allow_html=True)
-    st.markdown("---")
-    # -------------------------------------------------------------------------
-    # Section 2: Risk Assessment (simplified risk categories)
-    # -------------------------------------------------------------------------
-    st.subheader(tr("risk_assessment", lang))
-    # Determine risk categories based on ratios (example heuristic)
-    categories = []
-    # Financial risk category
-    fin_level = "low" if dte < 1 else ("medium" if dte < 2 else "high")
-    fin_name = "Financial Risk" if lang == 'en' else "Rủi ro tài chính"
-    fin_desc = (
-        ("Leverage is low" if fin_level == "low" else
-         "Leverage is moderate" if fin_level == "medium" else
-         "Leverage is high") if lang == 'en' else
-        ("Đòn bẩy thấp" if fin_level == "low" else
-         "Đòn bẩy trung bình" if fin_level == "medium" else
-         "Đòn bẩy cao")
-    )
-    categories.append({
-        tr("risk_categories", lang): fin_name,
-        tr("score", lang): dte if np.isfinite(dte) else np.nan,
-        tr("description", lang): fin_desc,
-    })
-    # Liquidity risk category
-    liq_level = "low" if current_ratio > 1.5 else ("medium" if current_ratio > 1.0 else "high")
-    liq_name = "Liquidity Risk" if lang == 'en' else "Rủi ro thanh khoản"
-    liq_desc = (
-        ("Liquidity is strong" if liq_level == "low" else
-         "Liquidity is average" if liq_level == "medium" else
-         "Liquidity is weak") if lang == 'en' else
-        ("Thanh khoản tốt" if liq_level == "low" else
-         "Thanh khoản trung bình" if liq_level == "medium" else
-         "Thanh khoản yếu")
-    )
-    categories.append({
-        tr("risk_categories", lang): liq_name,
-        tr("score", lang): current_ratio if np.isfinite(current_ratio) else np.nan,
-        tr("description", lang): liq_desc,
-    })
-    # Profitability risk category (proxy by ROA)
-    prof_level = "low" if roa > 0.05 else ("medium" if roa > 0.0 else "high")
-    prof_name = "Profitability Risk" if lang == 'en' else "Rủi ro lợi nhuận"
-    prof_desc = (
-        ("Profitability is strong" if prof_level == "low" else
-         "Profitability is modest" if prof_level == "medium" else
-         "Profitability is negative") if lang == 'en' else
-        ("Lợi suất cao" if prof_level == "low" else
-         "Lợi suất trung bình" if prof_level == "medium" else
-         "Lợi suất âm")
-    )
-    categories.append({
-        tr("risk_categories", lang): prof_name,
-        tr("score", lang): roa if np.isfinite(roa) else np.nan,
-        tr("description", lang): prof_desc,
-    })
-    risk_df = pd.DataFrame(categories)
-    # Format score column as ratio or dash
-    sc_col = tr("score", lang)
-    risk_disp = risk_df.copy()
-    risk_disp[sc_col] = risk_disp[sc_col].apply(lambda x: _fmt_ratio(x) if np.isfinite(x) else "-")
-    st.dataframe(risk_disp, use_container_width=True, hide_index=True)
-    # Placeholder for risk commentary
-    st.markdown("### " + tr("risk_comments", lang))
-    if lang == 'vi':
-        st.info("""**Ví dụ ghi chú rủi ro:**\n\n- PD ở mức trung bình, cần theo dõi thêm các yếu tố thị trường và hoạt động kinh doanh.\n- Đòn bẩy tài chính nằm trong phạm vi cho phép, thanh khoản ổn định.\n- Triển vọng ngành tích cực hỗ trợ giảm rủi ro tổng thể.\n""")
+        # Let Plotly manage sizing; height defined for consistent appearance
+        gauge_fig.update_layout(height=220, margin=dict(l=10, r=10, t=10, b=10))
+        st.plotly_chart(gauge_fig, use_container_width=True)
+    # ------------------------------------------------------------------
+    # Section C: Model Explainability (SHAP)
+    st.subheader("C. Model Explainability (SHAP)")
+    # Prepare aligned features for SHAP computation
+    shap_feats = [f for f in final_features if f in row_model.index]
+    X_shap = pd.DataFrame([{f: float(row_model.get(f, 0.0)) for f in shap_feats}], columns=shap_feats)
+    shap_raw = None
+    try:
+        shap_raw = explain_shap(model, X_shap, top_n=10)
+    except Exception:
+        shap_raw = None
+    # If no shap results, display a message
+    if shap_raw is None or (hasattr(shap_raw, 'empty') and shap_raw.empty):
+        st.info("SHAP is not available for this model/input.")
     else:
-        st.info("""**Example risk commentary:**\n\n- PD sits at a medium level; monitor market and operating factors.\n- Leverage is within acceptable bounds and liquidity is stable.\n- A favourable industry outlook helps mitigate overall risk.\n""")
-    st.markdown("---")
-    # -------------------------------------------------------------------------
-    # Section 3: Model Details (simplified)
-    # -------------------------------------------------------------------------
-    st.subheader(tr("model_details", lang))
-    model_info = pd.DataFrame({
-        tr("metric", lang): [tr("model_type", lang), tr("algorithm", lang), tr("num_features", lang), tr("accuracy", lang), tr("auc", lang), tr("precision", lang), tr("recall", lang), tr("f1", lang)],
-        tr("value", lang): [
-            "Binary Classification", type(model).__name__, len(model_feature_names(model)), "92.5%", "0.94", "0.88", "0.85", "0.865"
-        ]
-    })
-    st.dataframe(model_info, use_container_width=True, hide_index=True)
-    # Feature importances
-    if hasattr(model, "feature_importances_"):
-        fi = model.feature_importances_
-        feats = model_feature_names(model)
-        fi_df = pd.DataFrame({
-            tr("metric", lang): feats,
-            tr("value", lang): fi / fi.sum()
-        }).sort_values(by=tr("value", lang), ascending=False).head(10)
-        fig_fi = go.Figure(data=[
-            go.Bar(
-                y=fi_df[tr("metric", lang)][::-1],
-                x=fi_df[tr("value", lang)][::-1],
-                orientation='h',
-                marker_color='#1f77b4'
+        # Convert shap_raw into a DataFrame if necessary and select the first two columns
+        if isinstance(shap_raw, pd.Series):
+            shap_df = shap_raw.reset_index()
+        elif isinstance(shap_raw, (list, tuple, np.ndarray)):
+            shap_df = pd.DataFrame(shap_raw)
+        elif isinstance(shap_raw, pd.DataFrame):
+            shap_df = shap_raw.copy()
+        else:
+            shap_df = pd.DataFrame(shap_raw)
+        # Ensure at least two columns exist
+        if shap_df.shape[1] < 2:
+            st.info("SHAP output detected but cannot interpret columns.")
+        else:
+            # Take the first two columns as feature and shap value
+            shap_df = shap_df.iloc[:, :2].copy()
+            shap_df.columns = ["Feature", "SHAP"]
+            # Clean and sort by absolute shap value
+            shap_df["SHAP"] = pd.to_numeric(shap_df["SHAP"], errors='coerce')
+            shap_df = shap_df.dropna()
+            if shap_df.empty:
+                st.info("SHAP is not available for this model/input.")
+            else:
+                shap_df["absSHAP"] = shap_df["SHAP"].abs()
+                shap_df = shap_df.sort_values("absSHAP", ascending=True).tail(10)
+                colors = ["#E24A33" if v < 0 else "#1F77B4" for v in shap_df["SHAP"]]
+                fig_sh = go.Figure()
+                fig_sh.add_trace(go.Bar(
+                    x=shap_df["SHAP"],
+                    y=shap_df["Feature"].astype(str),
+                    orientation="h",
+                    marker_color=colors,
+                    text=[f"{v:+.3f}" for v in shap_df["SHAP"]],
+                    textposition="outside",
+                ))
+                fig_sh.update_layout(
+                    title="Top Feature Contributions (SHAP)",
+                    xaxis=dict(title="SHAP value → PD"),
+                    height=420,
+                    margin=dict(l=10, r=20, t=40, b=10),
+                )
+                st.plotly_chart(fig_sh, use_container_width=True)
+    # ------------------------------------------------------------------
+    # Section D: Stress Testing – Sector & Systemic Impacts
+    st.subheader("D. Stress Testing — Sector & Systemic Impacts")
+    # Preset stress scenarios (absolute PD values under stress)
+    sector_scenarios = {
+        "Real Estate": {"Credit Tightening": 0.42, "Property Price Correction": 0.36},
+        "Materials": {"Steel Price Collapse": 0.34, "Energy Cost Surge": 0.28},
+        "Technology": {"Valuation Reset": 0.24, "Supply Chain Disruptions": 0.20},
+        "Energy": {"Oil Demand Crash": 0.32, "Field Outage": 0.28},
+        "Financials": {"Credit Loss Cycle": 0.40, "Funding Cost Rise": 0.35},
+        "Consumer Discretionary": {"Demand Shock": 0.30, "Luxury Slowdown": 0.26},
+        "Consumer Staples": {"Input Cost Surge": 0.25, "Supply Chain Shock": 0.22},
+        "Industrials": {"Logistics Disruption": 0.28, "Export Order Drop": 0.24},
+        "Utilities": {"Regulatory Tightening": 0.26},
+        "Healthcare": {"Reimbursement Pressure": 0.27},
+        "Telecom": {"Capex Cycle Upswing": 0.25},
+        "Transportation": {"Travel Collapse": 0.33, "Fuel Spike": 0.30},
+        "Hospitality & Travel": {"Tourism Freeze": 0.35},
+        "Other": {"Generic Sector Shock": 0.22},
+    }
+    systemic_scenarios = {
+        "Global Financial Crisis": 0.38,
+        "Market Liquidity Crisis": 0.34,
+        "Interest Rate +300bps": 0.24,
+        "Government Tightening": 0.22,
+        "Tariffs": 0.18,
+    }
+    # Determine sector bucket for scenarios
+    bucket = sector_bucket if sector_bucket in sector_scenarios else "Other"
+    baseline_pd = pd_final
+    # Sector impacts
+    sec_dict = sector_scenarios.get(bucket, sector_scenarios["Other"])
+    df_sector = pd.DataFrame([(name, sec_dict[name]) for name in sec_dict], columns=["Scenario", "PD"])
+    df_sector["Impact_%"] = (df_sector["PD"] - baseline_pd) / max(baseline_pd, 1e-9) * 100.0
+    # Systemic impacts
+    df_sys = pd.DataFrame(list(systemic_scenarios.items()), columns=["Scenario", "PD"])
+    df_sys["Impact_%"] = (df_sys["PD"] - baseline_pd) / max(baseline_pd, 1e-9) * 100.0
+    # Caption summarising baseline
+    st.caption(f"Raw Sector: {sector_raw or '-'} → Bucket: **{bucket}** • Baseline PD (post-adj): **{baseline_pd:.2%}**")
+    col_st1, col_st2 = st.columns(2)
+    with col_st1:
+        if not df_sector.empty:
+            fig_sector = go.Figure()
+            fig_sector.add_trace(go.Bar(
+                x=df_sector["Scenario"],
+                y=df_sector["Impact_%"],
+                text=[f"{v:+.1f}%" for v in df_sector["Impact_%"]],
+                textposition="outside",
+                marker_color="rgba(10, 102, 194, 0.8)",
+            ))
+            fig_sector.update_layout(
+                title=f"Sector Impact — ΔPD vs Baseline (%) • {bucket}",
+                yaxis=dict(title="Impact (%)"),
+                height=340,
+                margin=dict(l=10, r=10, t=48, b=80),
+                xaxis_tickangle=-30,
             )
-        ])
-        fig_fi.update_layout(title=tr("feature_importance", lang), height=350)
-        st.plotly_chart(fig_fi, use_container_width=True)
-    else:
-        st.info("Feature importances not available for this model.")
+            st.plotly_chart(fig_sector, use_container_width=True)
+        else:
+            st.info("No sector scenarios available.")
+    with col_st2:
+        if not df_sys.empty:
+            fig_sys = go.Figure()
+            fig_sys.add_trace(go.Bar(
+                x=df_sys["Scenario"],
+                y=df_sys["Impact_%"],
+                text=[f"{v:+.1f}%" for v in df_sys["Impact_%"]],
+                textposition="outside",
+                marker_color="rgba(34, 197, 94, 0.8)",
+            ))
+            fig_sys.update_layout(
+                title="Systemic Impact — ΔPD vs Baseline (%)",
+                yaxis=dict(title="Impact (%)"),
+                height=340,
+                margin=dict(l=10, r=10, t=48, b=80),
+                xaxis_tickangle=-30,
+            )
+            st.plotly_chart(fig_sys, use_container_width=True)
+        else:
+            st.info("No systemic scenarios available.")
+    # Optionally show full table of scenario PDs and impacts
+    with st.expander("Scenario details"):
+        # Combine both tables for display
+        df_sector_disp = df_sector.copy()
+        df_sector_disp.insert(0, "Type", "Sector")
+        df_sys_disp = df_sys.copy()
+        df_sys_disp.insert(0, "Type", "Systemic")
+        df_comb = pd.concat([df_sector_disp, df_sys_disp], ignore_index=True)
+        df_comb["PD"] = df_comb["PD"].apply(lambda x: f"{x:.2%}")
+        df_comb["Impact_%"] = df_comb["Impact_%"].apply(lambda x: f"{x:+.1f}%")
+        st.dataframe(df_comb, use_container_width=True, hide_index=True)
+
+    # ------------------------------------------------------------------
+    # Section E: Risk Assessment & Recommendations
+    st.subheader("E. Risk Assessment & Commentary")
+    # Derive simple risk categories based on financial ratios
+    def _risk_category(value: float | None, low_thresh: float, high_thresh: float, invert: bool = False) -> str:
+        """Map a numeric value to a risk category (Low/Medium/High).
+
+        Parameters
+        ----------
+        value : float or None
+            Numeric ratio to classify.  If ``None`` or NaN, returns '-'.
+        low_thresh : float
+            Threshold below which risk is considered low (if ``invert`` is False) or high (if True).
+        high_thresh : float
+            Threshold above which risk is considered high (if ``invert`` is False) or low (if True).
+        invert : bool, default False
+            If True, interpret lower values as higher risk (e.g. liquidity ratios).
+        """
+        if value is None or not np.isfinite(value):
+            return "-"
+        if invert:
+            if value < low_thresh:
+                return "High"
+            elif value < high_thresh:
+                return "Medium"
+            else:
+                return "Low"
+        else:
+            if value < low_thresh:
+                return "Low"
+            elif value < high_thresh:
+                return "Medium"
+            else:
+                return "High"
+    risk_data = [
+        {"Metric": "Default Probability", "Value": f"{pd_final:.2%}", "Category": _risk_category(pd_final, 0.20, 0.50, invert=True)},
+        {"Metric": "Debt/Equity", "Value": _fmt_ratio(dte), "Category": _risk_category(dte, 1.0, 2.0)},
+        {"Metric": "Current Ratio", "Value": _fmt_ratio(current_ratio), "Category": _risk_category(current_ratio, 1.0, 1.5, invert=True)},
+        {"Metric": "ROA", "Value": _fmt_ratio(roa), "Category": _risk_category(roa, 0.0, 0.05, invert=False)},
+    ]
+    df_risk = pd.DataFrame(risk_data)
+    st.dataframe(df_risk, use_container_width=True, hide_index=True)
+    # Sample commentary / recommendations (user can edit later)
+    st.markdown("**Sample Risk Notes & Recommendations:**")
+    st.markdown("- PD ở mức trung bình, cần theo dõi thêm các yếu tố thị trường và hoạt động kinh doanh.")
+    st.markdown("- Đòn bẩy tài chính nằm trong phạm vi cho phép, thanh khoản ổn định.")
+    st.markdown("- Triển vọng ngành tích cực hỗ trợ giảm rủi ro tổng thể.")

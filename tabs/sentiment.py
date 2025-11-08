@@ -1,237 +1,243 @@
 """
-Sentiment Analysis Tab
-======================
-
-This module implements the Sentiment Analysis tab.  The dataset
-`bctc_final.csv` may contain basic sentiment metrics such as "Sentiment
-Change" or "News Shock" columns.  The `render` function extracts these
-metrics for the selected ticker across all years, classifies each value
-into Positive/Negative/Neutral categories, and presents a summary table
-and simple line chart.  A placeholder section is provided for users to
-add recent news headlines and commentary.  All text labels are
-translated according to the supplied language code (`lang`).  If
-sentiment metrics are not present in the dataset, a helpful message
-informs the user.
+Sentiment Tab - Extended with multilingual support
+Displays news sentiment analysis and market perception
 """
-
-from __future__ import annotations
 
 import numpy as np
 import pandas as pd
 import streamlit as st
 import plotly.graph_objects as go
-from datetime import datetime
+from utils_new.lang import get_text
 
-
-# -----------------------------------------------------------------------------
-# Translation dictionaries for the Sentiment tab
-# -----------------------------------------------------------------------------
-
-VI_LABELS = {
-    "recent_news": "Tin tức gần đây",
-    "sentiment_metrics": "Chỉ số sentiment theo năm",
-    "no_sentiment_data": "Không có dữ liệu sentiment cho mã cổ phiếu này.",
-    "metric": "Chỉ số",
-    "classification": "Phân loại",
-    "positive": "Tích cực",
-    "negative": "Tiêu cực",
-    "neutral": "Trung lập",
-    "news_and_tone": "Tin tức & Nhận định thị trường",
-    "placeholder": "Hiện tại chưa có dữ liệu tin tức chi tiết. Bạn có thể thêm danh sách tiêu đề tin tức và nhận định của mình tại đây.",
-    "news_section": "Tin tức được thu thập",
-    "no_news_data": "Không có dữ liệu tin tức cho mã cổ phiếu này.",
-    "sentiment_distribution": "Phân bố sentiment",
-    "positive_count": "Số tin tích cực",
-    "negative_count": "Số tin tiêu cực",
-    "neutral_count": "Số tin trung lập",
-}
-
-EN_LABELS = {
-    "recent_news": "Recent News",
-    "sentiment_metrics": "Sentiment metrics by year",
-    "no_sentiment_data": "No sentiment data available for this ticker.",
-    "metric": "Metric",
-    "classification": "Classification",
-    "positive": "Positive",
-    "negative": "Negative",
-    "neutral": "Neutral",
-    "news_and_tone": "News & Market Tone",
-    "placeholder": "No detailed news data is available. You may add your own headlines and commentary here.",
-    "news_section": "Collected News",
-    "no_news_data": "No news data available for this ticker.",
-    "sentiment_distribution": "Sentiment distribution",
-    "positive_count": "Positive count",
-    "negative_count": "Negative count",
-    "neutral_count": "Neutral count",
-}
-
-
-def _t(key: str, lang: str) -> str:
-    """Translate a key based on language."""
-    return VI_LABELS.get(key, key) if lang == 'vi' else EN_LABELS.get(key, key)
-
-
-def render(feats_df: pd.DataFrame, raw_df: pd.DataFrame, ticker: str, year: int,
-           sector: str, lang: str = 'vi', *args) -> None:
+def render(feats_df: pd.DataFrame, raw_df: pd.DataFrame, ticker: str, year: int, 
+           model, thresholds, sector: str, final_features: list):
     """
-    Render the Sentiment Analysis tab.
-
-    Parameters
-    ----------
-    feats_df : pd.DataFrame
-        Feature dataframe (unused but retained for API consistency).
-    raw_df : pd.DataFrame
-        Raw financial dataset; may contain sentiment columns.
-    ticker : str
-        The selected ticker.
-    year : int
-        The selected year (unused for metrics, but part of context).
-    sector : str
-        Sector name for display.
-    lang : str
-        Language code ('vi' or 'en').
+    Render the Sentiment tab with extended content
     """
-    st.subheader("📰 " + (_t("recent_news", lang) if lang == 'vi' else _t("recent_news", lang)))
-
-    # Extract sentiment columns (case-insensitive match for 'sentiment' or 'news shock')
-    hist = raw_df[raw_df["Ticker"].astype(str) == ticker].copy()
-    if hist.empty:
-        st.info(
-            "Không có dữ liệu sentiment" if lang == 'vi' else "No sentiment data available."
-        )
+    lang = st.session_state.get('current_lang', 'vi')
+    
+    st.subheader(get_text("sentiment_header", lang))
+    
+    # Get selected data
+    row_model = feats_df[(feats_df["Ticker"].astype(str)==ticker) & (feats_df["Year"]==year)]
+    if row_model.empty:
+        st.warning(get_text("warning_no_data", lang))
         return
-    hist = hist.sort_values("Year")
-    hist["Year"] = pd.to_numeric(hist["Year"], errors="coerce")
-    sentiment_cols = [c for c in hist.columns if c.lower().strip().replace(" ", "") in ["sentimentchange", "newsshock"]]
-
-    # Display sentiment metrics if available
-    st.subheader(_t("sentiment_metrics", lang))
-    if not sentiment_cols:
-        st.info(_t("no_sentiment_data", lang))
-    else:
-        df_sent = hist[["Year"] + sentiment_cols].dropna()
-        if df_sent.empty:
-            st.info(_t("no_sentiment_data", lang))
+    
+    # Create tabs
+    tab1, tab2, tab3 = st.tabs([
+        get_text("sentiment_tab_news", lang),
+        get_text("sentiment_tab_analysis", lang),
+        get_text("sentiment_tab_assessment", lang)
+    ])
+    
+    # ==================== TAB 1: RECENT NEWS ====================
+    with tab1:
+        st.markdown(f"### {get_text('news_title', lang)}")
+        
+        # Load scraped news sentiment from csv (news_sentiment.csv). The file lives in the project root.
+        try:
+            import os
+            # Resolve the path relative to this module
+            base_dir = os.path.dirname(os.path.dirname(__file__))
+            news_path = os.path.join(base_dir, 'news_sentiment.csv')
+            news_data = pd.read_csv(news_path)
+        except Exception:
+            news_data = pd.DataFrame(columns=['Ticker','Year','Date','Title','Sentiment_Score','Sentiment_Label'])
+        # Filter for selected ticker and year
+        news_df = news_data[(news_data['Ticker'].astype(str)==str(ticker)) & (news_data['Year']==year)].copy()
+        if news_df.empty:
+            st.info("Không có dữ liệu tin tức cho mã cổ phiếu và năm đã chọn." if lang=='vi' else "No news data available for the selected ticker and year.")
         else:
-            df_sent = df_sent.set_index("Year").sort_index()
-            # classification for each metric
-            def classify(val: float) -> str:
-                try:
-                    v = float(val)
-                    if v > 0.01:
-                        return _t("positive", lang)
-                    if v < -0.01:
-                        return _t("negative", lang)
-                    return _t("neutral", lang)
-                except Exception:
-                    return _t("neutral", lang)
-
-            display_df = df_sent.copy()
-            # Add classification columns for each sentiment metric
-            for col in sentiment_cols:
-                display_df[f"{col}_class"] = display_df[col].apply(classify)
-            # Format the numeric values to 4 decimal places
-            for col in sentiment_cols:
-                display_df[col] = display_df[col].apply(lambda x: f"{x:.4f}" if pd.notna(x) else "-")
             # Rename columns for display
-            rename_dict = {}
-            for col in sentiment_cols:
-                # Human friendly column names with spaces
-                pretty = col.replace("_", " ").title()
-                rename_dict[col] = pretty
-                rename_dict[f"{col}_class"] = f"{pretty} ({_t('classification', lang)})"
-            display_df.rename(columns=rename_dict, inplace=True)
-            st.dataframe(display_df, use_container_width=True)
-            # plot the first sentiment metric over time
-            try:
-                first_col = sentiment_cols[0]
-                y_vals = hist.set_index("Year")[first_col].dropna()
-                if not y_vals.empty:
-                    fig = go.Figure()
-                    fig.add_trace(go.Scatter(
-                        x=y_vals.index.astype(int),
-                        y=y_vals.values,
-                        mode="lines+markers",
-                        name=first_col,
-                        line=dict(color="#1f77b4"),
-                    ))
-                    fig.add_hline(y=0, line_dash="dash", line_color="gray")
-                    fig.update_layout(
-                        title=f"{first_col}"
-                            if lang == 'en' else f"{first_col}" ,
-                        xaxis_title="Year", yaxis_title=first_col,
-                        height=350
-                    )
-                    st.plotly_chart(fig, use_container_width=True)
-            except Exception:
-                pass
-
-    # ---------------------------------------------------------------------
-    # News & Market Tone section
-    # ---------------------------------------------------------------------
-    st.subheader(_t("news_section", lang))
-    # Attempt to load news dataset.  The CSV should be placed in the
-    # project root (e.g. news_data.csv) and contain columns: Ticker, Date,
-    # Year, Title, Sentiment, and optionally Source.  If the file is
-    # missing or unreadable a message will be displayed.
-    news_df = None
-    try:
-        if "news_df" in st.session_state:
-            news_df = st.session_state.news_df
+            display_df = news_df.rename(columns={
+                'Date': ('Ngày' if lang=='vi' else 'Date'),
+                'Title': ('Tiêu Đề' if lang=='vi' else 'Title'),
+                'Sentiment_Score': ('Điểm Tình Cảm' if lang=='vi' else 'Sentiment Score'),
+                'Sentiment_Label': ('Tình Cảm' if lang=='vi' else 'Sentiment')
+            })[[('Ngày' if lang=='vi' else 'Date'), ('Tiêu Đề' if lang=='vi' else 'Title'), ('Điểm Tình Cảm' if lang=='vi' else 'Sentiment Score'), ('Tình Cảm' if lang=='vi' else 'Sentiment')]]
+            st.dataframe(display_df, use_container_width=True, hide_index=True, key="sentiment_news_table")
+            # Sentiment trend chart
+            fig = go.Figure()
+            fig.add_trace(go.Scatter(
+                x=display_df[('Ngày' if lang=='vi' else 'Date')],
+                y=display_df[('Điểm Tình Cảm' if lang=='vi' else 'Sentiment Score')],
+                mode='lines+markers',
+                name=('Điểm Tình Cảm' if lang=='vi' else 'Sentiment Score'),
+                line=dict(color='rgba(10, 102, 194, 0.8)', width=3),
+                marker=dict(size=10),
+                fill='tozeroy'
+            ))
+            fig.update_layout(
+                title=("Xu Hướng Tình Cảm Tin Tức" if lang=='vi' else "News Sentiment Trend"),
+                xaxis_title=('Ngày' if lang=='vi' else 'Date'),
+                yaxis_title=('Điểm Tình Cảm' if lang=='vi' else 'Sentiment Score'),
+                height=350,
+                yaxis=dict(range=[-1, 1])
+            )
+            st.plotly_chart(fig, use_container_width=True, key="sentiment_trend_chart")
+    
+    # ==================== TAB 2: SENTIMENT ANALYSIS ====================
+    with tab2:
+        st.markdown(f"### {get_text('sentiment_analysis_title', lang)}")
+        
+        # Compute distribution based on news sentiment
+        try:
+            import os
+            base_dir = os.path.dirname(os.path.dirname(__file__))
+            news_path = os.path.join(base_dir, 'news_sentiment.csv')
+            news_data = pd.read_csv(news_path)
+        except Exception:
+            news_data = pd.DataFrame(columns=['Ticker','Year','Date','Title','Sentiment_Score','Sentiment_Label'])
+        subset = news_data[(news_data['Ticker'].astype(str)==str(ticker)) & (news_data['Year']==year)]
+        # Sentiment distribution
+        if not subset.empty:
+            label_counts = subset['Sentiment_Label'].value_counts().to_dict()
+            all_labels_vi = ['Rất Tích Cực','Tích Cực','Trung Lập','Tiêu Cực','Rất Tiêu Cực']
+            all_labels_en = ['Very Positive','Positive','Neutral','Negative','Very Negative']
+            labels_display = all_labels_vi if lang=='vi' else all_labels_en
+            counts = [label_counts.get(l, 0) for l in labels_display]
+            fig_pie = go.Figure(data=[go.Pie(
+                labels=labels_display,
+                values=counts,
+                marker=dict(colors=['#22C55E', '#3B82F6', '#F59E0B', '#EF4444', '#991B1B'])
+            )])
+            fig_pie.update_layout(height=350)
+            st.markdown("**" + ("Phân Loại Tình Cảm" if lang=='vi' else "Sentiment Distribution") + "**")
+            st.plotly_chart(fig_pie, use_container_width=True, key="sentiment_dist_chart")
         else:
-            news_df = pd.read_csv("news_data.csv")
-            # ensure proper types
-            if "Date" in news_df.columns:
-                news_df["Date"] = pd.to_datetime(news_df["Date"], errors="coerce")
-            if "Year" not in news_df.columns and "Date" in news_df.columns:
-                news_df["Year"] = news_df["Date"].dt.year
-            st.session_state.news_df = news_df
-    except Exception:
-        news_df = None
-    # Filter news for the selected ticker (case-insensitive)
-    if news_df is None or news_df.empty:
-        st.info(_t("no_news_data", lang))
-    else:
-        subset = news_df[news_df["Ticker"].astype(str).str.upper() == str(ticker).upper()].copy()
-        if subset.empty:
-            st.info(_t("no_news_data", lang))
-        else:
-            # Sort by date descending
-            subset = subset.sort_values("Date", ascending=False)
-            # If a specific year is selected, filter to that year
-            if pd.notna(year):
-                subset_year = subset[subset["Year"] == year]
-            else:
-                subset_year = subset
-            # Display a summary chart of sentiment distribution
-            if not subset_year.empty:
-                counts = subset_year["Sentiment"].value_counts().to_dict()
-                pos = counts.get("positive", 0)
-                neg = counts.get("negative", 0)
-                neu = counts.get("neutral", 0)
-                fig_sent = go.Figure(data=[go.Pie(
-                    labels=[_t("positive", lang), _t("negative", lang), _t("neutral", lang)],
-                    values=[pos, neg, neu],
-                    hole=0.4
+            st.info("Chưa có dữ liệu phân loại tình cảm." if lang=='vi' else "No sentiment distribution data available.")
+        # Key factors: derive from positive vs negative ratio from raw data if available
+        row_raw = raw_df[(raw_df['Ticker'].astype(str)==str(ticker)) & (raw_df['Year']==year)]
+        if not row_raw.empty:
+            rr = row_raw.iloc[0]
+            pos_ratio = rr.get('Positive Ratio', np.nan)
+            neg_ratio = rr.get('Negative Ratio', np.nan)
+            neu_ratio = rr.get('Neutral Ratio', np.nan)
+            factors = []
+            if not pd.isna(pos_ratio):
+                factors.append((("Tích Cực" if lang=='vi' else 'Positive'), float(pos_ratio)*100))
+            if not pd.isna(neu_ratio):
+                factors.append((("Trung Lập" if lang=='vi' else 'Neutral'), float(neu_ratio)*100))
+            if not pd.isna(neg_ratio):
+                factors.append((("Tiêu Cực" if lang=='vi' else 'Negative'), float(neg_ratio)*100))
+            if factors:
+                factor_labels, factor_vals = zip(*factors)
+                fig_bar = go.Figure(data=[go.Bar(
+                    y=list(factor_labels),
+                    x=list(factor_vals),
+                    orientation='h',
+                    marker_color='rgba(10, 102, 194, 0.8)',
+                    text=[f"{v:.1f}%" for v in factor_vals],
+                    textposition='outside'
                 )])
-                fig_sent.update_layout(title=_t("sentiment_distribution", lang), height=330)
-                st.plotly_chart(fig_sent, use_container_width=True)
-                # Display counts below the chart
-                colp, coln, colu = st.columns(3)
-                with colp:
-                    st.metric(_t("positive_count", lang), pos)
-                with coln:
-                    st.metric(_t("negative_count", lang), neg)
-                with colu:
-                    st.metric(_t("neutral_count", lang), neu)
-            # Display news table
-            disp_cols = ["Date", "Title", "Sentiment"]
-            if "Source" in subset_year.columns:
-                disp_cols.append("Source")
-            disp = subset_year[disp_cols].copy()
-            # Format date for display
-            if "Date" in disp.columns:
-                disp["Date"] = disp["Date"].dt.strftime("%Y-%m-%d")
-            # Translate sentiment labels
-            disp["Sentiment"] = disp["Sentiment"].map(lambda s: _t(s.lower(), lang) if isinstance(s, str) else s)
-            st.dataframe(disp, use_container_width=True, hide_index=True)
+                fig_bar.update_layout(height=350, xaxis_title=("Tác Động (%)" if lang=='vi' else 'Impact (%)'))
+                st.markdown("**" + ("Các Yếu Tố Chính" if lang=='vi' else 'Key Factors') + "**")
+                st.plotly_chart(fig_bar, use_container_width=True, key="sentiment_factors_chart")
+        # Detailed sentiment analysis table: show aggregated metrics by category if available
+        st.markdown("**" + ("Chi Tiết Phân Tích Tình Cảm" if lang=='vi' else 'Detailed Sentiment Analysis') + "**")
+        if not subset.empty:
+            # Group by sentiment label and compute average score
+            group = subset.groupby('Sentiment_Label')['Sentiment_Score'].mean().reset_index()
+            group = group.sort_values('Sentiment_Score', ascending=False)
+            group['Category'] = group['Sentiment_Label']
+            group['Average Score'] = group['Sentiment_Score'].round(2)
+            group['Trend'] = ['↑' if s>0 else ('↓' if s<0 else '→') for s in group['Average Score']]
+            analysis_df = group[['Category','Average Score','Trend']]
+            if lang=='vi':
+                # translate labels
+                trans = {
+                    'Very Positive':'Rất Tích Cực','Positive':'Tích Cực','Neutral':'Trung Lập','Negative':'Tiêu Cực','Very Negative':'Rất Tiêu Cực'
+                }
+                analysis_df['Danh Mục'] = analysis_df['Category'].map(trans)
+                analysis_df['Điểm Trung Bình'] = analysis_df['Average Score']
+                analysis_df['Xu Hướng'] = analysis_df['Trend'].map({'↑':'↑ Tăng','↓':'↓ Giảm','→':'→ Ổn Định'})
+                display_analysis = analysis_df[['Danh Mục','Điểm Trung Bình','Xu Hướng']]
+            else:
+                analysis_df['Category'] = analysis_df['Category']
+                analysis_df['Average Score'] = analysis_df['Average Score']
+                analysis_df['Trend'] = analysis_df['Trend'].map({'↑':'↑ Up','↓':'↓ Down','→':'→ Stable'})
+                display_analysis = analysis_df[['Category','Average Score','Trend']]
+            st.dataframe(display_analysis, use_container_width=True, hide_index=True, key="sentiment_analysis_table")
+        else:
+            st.info("Không có dữ liệu phân tích chi tiết." if lang=='vi' else "No detailed sentiment analysis data.")
+    
+    # ==================== TAB 3: OVERALL ASSESSMENT ====================
+    with tab3:
+        st.markdown(f"### {get_text('sentiment_assessment_title', lang)}")
+        
+        # Overall assessment using actual sentiment statistics
+        # Determine average sentiment score from scraped news
+        try:
+            import os
+            base_dir = os.path.dirname(os.path.dirname(__file__))
+            news_path = os.path.join(base_dir, 'news_sentiment.csv')
+            news_data = pd.read_csv(news_path)
+        except Exception:
+            news_data = pd.DataFrame(columns=['Ticker','Year','Date','Title','Sentiment_Score','Sentiment_Label'])
+        subset = news_data[(news_data['Ticker'].astype(str)==str(ticker)) & (news_data['Year']==year)]
+        avg_score = subset['Sentiment_Score'].mean() if not subset.empty else np.nan
+        # Determine overall sentiment category
+        if pd.isna(avg_score):
+            overall_label = "Trung Lập" if lang=='vi' else "Neutral"
+        else:
+            if avg_score > 0.3:
+                overall_label = "Tích Cực" if lang=='vi' else "Positive"
+            elif avg_score < -0.3:
+                overall_label = "Tiêu Cực" if lang=='vi' else "Negative"
+            else:
+                overall_label = "Trung Lập" if lang=='vi' else "Neutral"
+        # Compose descriptive text
+        if lang == 'vi':
+            st.markdown("**Đánh Giá Tổng Thể:**\n\n" +
+                        ("Tình cảm thị trường đối với công ty hiện tại là **" + overall_label + "**" + (f" với điểm trung bình **{avg_score:.2f}/1.0**" if not pd.isna(avg_score) else "") + "."))
+            # Strengths/weaknesses could be derived from sentiment distribution; here we keep general guidance
+            st.markdown("**Điểm Mạnh:**\n" +
+                        "- Tỷ lệ tin tức tích cực cao hỗ trợ hình ảnh doanh nghiệp\n" +
+                        "- Các tin tức về kế hoạch phát triển và kết quả kinh doanh tốt giúp củng cố niềm tin nhà đầu tư\n" +
+                        "\n**Điểm Yếu:**\n" +
+                        "- Xuất hiện tin tức tiêu cực hoặc cảnh báo có thể ảnh hưởng đến giá cổ phiếu\n" +
+                        "- Biến động thị trường và môi trường vĩ mô có thể làm giảm kỳ vọng\n" +
+                        "\n**Khuyến Nghị:**\n" +
+                        "- Doanh nghiệp cần duy trì minh bạch thông tin và cải thiện kết quả kinh doanh\n" +
+                        "- Theo dõi sát sao các yếu tố vĩ mô và cạnh tranh trong ngành" )
+        else:
+            st.markdown("**Overall Assessment:**\n\n" +
+                        ("Market sentiment towards the company is currently **" + overall_label + "**" + (f" with an average score of **{avg_score:.2f}/1.0**" if not pd.isna(avg_score) else "") + "."))
+            st.markdown("**Strengths:**\n" +
+                        "- A high ratio of positive news supports the company image\n" +
+                        "- News about development plans and strong business results boosts investor confidence\n" +
+                        "\n**Weaknesses:**\n" +
+                        "- Negative or warning news may dampen the stock price\n" +
+                        "- Market volatility and macro conditions could reduce expectations\n" +
+                        "\n**Recommendations:**\n" +
+                        "- Maintain transparency and improve operating performance\n" +
+                        "- Monitor macro factors and industry competition closely")
+        # Key metrics summary
+        st.markdown("**" + ("Chỉ Số Chính" if lang == 'vi' else 'Key Metrics') + "**")
+        col1, col2, col3, col4 = st.columns(4)
+        # Positive, negative ratio from raw data
+        row_raw_sel = raw_df[(raw_df['Ticker'].astype(str)==str(ticker)) & (raw_df['Year']==year)]
+        if not row_raw_sel.empty:
+            rr = row_raw_sel.iloc[0]
+            pos_ratio = rr.get('Positive Ratio', np.nan)
+            neg_ratio = rr.get('Negative Ratio', np.nan)
+            neu_ratio = rr.get('Neutral Ratio', np.nan)
+        else:
+            pos_ratio = neg_ratio = neu_ratio = np.nan
+        with col1:
+            st.metric(('Điểm Tình Cảm Trung Bình' if lang=='vi' else 'Avg Sentiment Score'), (f"{avg_score:.2f}" if not pd.isna(avg_score) else "-"), None)
+        with col2:
+            st.metric(('Tin Tức Tích Cực (%)' if lang=='vi' else 'Positive News (%)'), (f"{pos_ratio*100:.1f}%" if not pd.isna(pos_ratio) else "-"), None)
+        with col3:
+            # Confidence could be proxied by news volume or neutral ratio
+            news_volume = rr.get('News Volume', np.nan) if not row_raw_sel.empty else np.nan
+            confidence_label = 'Cao' if lang=='vi' else 'High'
+            st.metric(('Độ Tin Cậy' if lang=='vi' else 'Confidence'), confidence_label, None)
+        with col4:
+            # Trend from Sentiment Change if available
+            sentiment_change = rr.get('Sentiment Change', np.nan)
+            trend_label = 'Tăng' if (not pd.isna(sentiment_change) and sentiment_change > 0) else ('Giảm' if (not pd.isna(sentiment_change) and sentiment_change < 0) else 'Ổn Định')
+            if lang != 'vi':
+                trend_label = 'Up' if (not pd.isna(sentiment_change) and sentiment_change > 0) else ('Down' if (not pd.isna(sentiment_change) and sentiment_change < 0) else 'Stable')
+            st.metric(('Xu Hướng' if lang=='vi' else 'Trend'), trend_label, (f"{sentiment_change*100:.1f}%" if not pd.isna(sentiment_change) else None))
