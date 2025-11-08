@@ -12,17 +12,28 @@ from utils_new.lang import get_text
 def render(feats_df: pd.DataFrame, raw_df: pd.DataFrame, ticker: str, year: int, 
            model, thresholds, sector: str, final_features: list):
     """
-    Render the Sentiment tab with extended content
+    Render the Sentiment Analysis tab with enhanced features.
     """
     lang = st.session_state.get('current_lang', 'vi')
     
     st.subheader(get_text("sentiment_header", lang))
     
-    # Get selected data
-    row_model = feats_df[(feats_df["Ticker"].astype(str)==ticker) & (feats_df["Year"]==year)]
-    if row_model.empty:
-        st.warning(get_text("warning_no_data", lang))
-        return
+    # --- Simulated Sentiment Data ---
+    # In a real application, this would be fetched from a news/sentiment API
+    
+    # Calculate average sentiment score from sample data
+    news_data_raw = [
+        {"date": "2024-11-05", "source": "CafeF", "title": "Công ty công bố kết quả Q3 vượt kỳ vọng", "sentiment": 0.85},
+        {"date": "2024-11-03", "source": "VnEconomy", "title": "Ký hợp đồng cung cấp với khách hàng mới", "sentiment": 0.72},
+        {"date": "2024-10-28", "source": "Vietstock", "title": "Kế hoạch mở rộng sản xuất được phê duyệt", "sentiment": 0.68},
+        {"date": "2024-10-20", "source": "Báo Đầu Tư", "title": "Tăng giá cổ phiếu do kết quả kinh doanh tốt", "sentiment": 0.75},
+        {"date": "2024-10-15", "source": "Thanh Niên", "title": "Phát hành cổ phiếu thưởng cho cổ đông", "sentiment": 0.60},
+        {"date": "2024-10-10", "source": "Tuổi Trẻ", "title": "Rủi ro cạnh tranh gia tăng trong ngành", "sentiment": 0.30},
+        {"date": "2024-10-05", "source": "Lao Động", "title": "Biến động giá nguyên vật liệu đầu vào", "sentiment": 0.45},
+    ]
+    
+    news_df = pd.DataFrame(news_data_raw)
+    sentiment_score = news_df["sentiment"].mean()
     
     # Create tabs
     tab1, tab2, tab3 = st.tabs([
@@ -33,50 +44,35 @@ def render(feats_df: pd.DataFrame, raw_df: pd.DataFrame, ticker: str, year: int,
     
     # ==================== TAB 1: RECENT NEWS ====================
     with tab1:
-        st.markdown(f"### {get_text('news_title', lang)}")
+        st.markdown(f"### {get_text('news_title', lang).replace('[TICKER]', ticker)}")
         
-        # Sample news data
-        news_data = {
-            "Ngày" if lang == "vi" else "Date": [
-                "2024-11-05", "2024-11-03", "2024-10-28", "2024-10-20", "2024-10-15"
-            ],
-            "Tiêu Đề" if lang == "vi" else "Title": [
-                "Công ty công bố kết quả Q3 vượt kỳ vọng" if lang == "vi" else "Company announces Q3 results beating expectations",
-                "Ký hợp đồng cung cấp với khách hàng mới" if lang == "vi" else "Signed supply contract with new customer",
-                "Kế hoạch mở rộng sản xuất được phê duyệt" if lang == "vi" else "Production expansion plan approved",
-                "Tăng giá cổ phiếu do kết quả kinh doanh tốt" if lang == "vi" else "Stock price increase due to strong business results",
-                "Phát hành cổ phiếu thưởng cho cổ đông" if lang == "vi" else "Dividend stock issuance to shareholders"
-            ],
-            "Điểm Tình Cảm" if lang == "vi" else "Sentiment Score": [
-                0.85, 0.72, 0.68, 0.75, 0.60
-            ],
-            "Tình Cảm" if lang == "vi" else "Sentiment": [
-                "Rất Tích Cực" if lang == "vi" else "Very Positive",
-                "Tích Cực" if lang == "vi" else "Positive",
-                "Tích Cực" if lang == "vi" else "Positive",
-                "Tích Cực" if lang == "vi" else "Positive",
-                "Trung Lập" if lang == "vi" else "Neutral"
-            ]
-        }
+        # Display news in a table format
+        news_df["Tình Cảm"] = news_df["sentiment"].apply(lambda x: "Rất Tích Cực" if x > 0.8 else ("Tích Cực" if x > 0.6 else ("Trung Lập" if x > 0.4 else "Tiêu Cực")))
         
-        news_df = pd.DataFrame(news_data)
-        st.dataframe(news_df, use_container_width=True, hide_index=True, key="sentiment_news_table")
+        display_df = news_df[["date", "source", "title", "Tình Cảm"]].rename(columns={
+            "date": get_text("sentiment_col_date", lang),
+            "source": get_text("sentiment_col_source", lang),
+            "title": get_text("sentiment_col_title", lang),
+            "Tình Cảm": get_text("sentiment_col_sentiment", lang)
+        })
+        
+        st.dataframe(display_df, use_container_width=True, hide_index=True)
         
         # Sentiment trend chart
         fig = go.Figure()
         fig.add_trace(go.Scatter(
-            x=news_df["Ngày" if lang == "vi" else "Date"],
-            y=news_df["Điểm Tình Cảm" if lang == "vi" else "Sentiment Score"],
+            x=news_df["date"],
+            y=news_df["sentiment"],
             mode='lines+markers',
-            name="Điểm Tình Cảm" if lang == "vi" else "Sentiment Score",
+            name=get_text("sentiment_chart_trend_name", lang),
             line=dict(color='rgba(10, 102, 194, 0.8)', width=3),
             marker=dict(size=10),
             fill='tozeroy'
         ))
         fig.update_layout(
-            title="Xu Hướng Tình Cảm Tin Tức" if lang == "vi" else "News Sentiment Trend",
-            xaxis_title="Ngày" if lang == "vi" else "Date",
-            yaxis_title="Điểm Tình Cảm" if lang == "vi" else "Sentiment Score",
+            title=get_text("sentiment_chart_trend_title", lang),
+            xaxis_title=get_text("sentiment_col_date", lang),
+            yaxis_title=get_text("sentiment_metric_score", lang),
             height=350,
             yaxis=dict(range=[0, 1])
         )
@@ -89,70 +85,63 @@ def render(feats_df: pd.DataFrame, raw_df: pd.DataFrame, ticker: str, year: int,
         col1, col2 = st.columns(2)
         
         with col1:
-            st.markdown("**" + ("Phân Loại Tình Cảm" if lang == "vi" else "Sentiment Distribution") + "**")
-            sentiment_dist = {
-                "Tình Cảm" if lang == "vi" else "Sentiment": [
-                    "Rất Tích Cực" if lang == "vi" else "Very Positive",
-                    "Tích Cực" if lang == "vi" else "Positive",
-                    "Trung Lập" if lang == "vi" else "Neutral",
-                    "Tiêu Cực" if lang == "vi" else "Negative",
-                    "Rất Tiêu Cực" if lang == "vi" else "Very Negative"
-                ],
-                "Số Lượng" if lang == "vi" else "Count": [12, 28, 15, 8, 2]
-            }
+            st.markdown("**" + get_text("sentiment_dist_title", lang) + "**")
+            sentiment_counts = news_df["Tình Cảm"].value_counts().reset_index()
+            sentiment_counts.columns = ["label", "count"]
             
             fig_pie = go.Figure(data=[go.Pie(
-                labels=sentiment_dist["Tình Cảm" if lang == "vi" else "Sentiment"],
-                values=sentiment_dist["Số Lượng" if lang == "vi" else "Count"],
-                marker=dict(colors=['#22C55E', '#3B82F6', '#F59E0B', '#EF4444', '#991B1B'])
+                labels=sentiment_counts["label"], 
+                values=sentiment_counts["count"], 
+                hole=.3,
+                marker=dict(colors=['#3B82F6', '#22C55E', '#F59E0B', '#EF4444']) # Positive, Very Positive, Neutral, Negative
             )])
             fig_pie.update_layout(height=350)
             st.plotly_chart(fig_pie, use_container_width=True, key="sentiment_dist_chart")
         
         with col2:
-            st.markdown("**" + ("Các Yếu Tố Chính" if lang == "vi" else "Key Factors") + "**")
+            st.markdown("**" + get_text("sentiment_factors_title", lang) + "**")
             factors_data = {
-                "Yếu Tố" if lang == "vi" else "Factor": [
-                    "Kết Quả Kinh Doanh" if lang == "vi" else "Business Results",
-                    "Phát Triển Sản Phẩm" if lang == "vi" else "Product Development",
-                    "Tình Hình Ngành" if lang == "vi" else "Industry Situation",
-                    "Quản Lý Rủi Ro" if lang == "vi" else "Risk Management",
-                    "Triển Vọng Tương Lai" if lang == "vi" else "Future Outlook"
+                get_text("sentiment_factor_name", lang): [
+                    get_text("sentiment_factor_biz_results", lang),
+                    get_text("sentiment_factor_product_dev", lang),
+                    get_text("sentiment_factor_industry", lang),
+                    get_text("sentiment_factor_risk_mgmt", lang),
+                    get_text("sentiment_factor_outlook", lang)
                 ],
-                "Tác Động (%)" if lang == "vi" else "Impact (%)": [35, 25, 20, 12, 8]
+                get_text("sentiment_factor_impact", lang): [35, 25, 20, 12, 8]
             }
             
             fig_bar = go.Figure(data=[go.Bar(
-                y=factors_data["Yếu Tố" if lang == "vi" else "Factor"],
-                x=factors_data["Tác Động (%)" if lang == "vi" else "Impact (%)"],
+                y=factors_data[get_text("sentiment_factor_name", lang)],
+                x=factors_data[get_text("sentiment_factor_impact", lang)],
                 orientation='h',
                 marker_color='rgba(10, 102, 194, 0.8)',
-                text=[f"{v}%" for v in factors_data["Tác Động (%)" if lang == "vi" else "Impact (%)"]],
+                text=[f"{v}%" for v in factors_data[get_text("sentiment_factor_impact", lang)]],
                 textposition='outside'
             )])
             fig_bar.update_layout(
                 height=350,
-                xaxis_title="Tác Động (%)" if lang == "vi" else "Impact (%)"
+                xaxis_title=get_text("sentiment_factor_impact", lang)
             )
             st.plotly_chart(fig_bar, use_container_width=True, key="sentiment_factors_chart")
         
         # Detailed sentiment analysis table
-        st.markdown("**" + ("Chi Tiết Phân Tích Tình Cảm" if lang == "vi" else "Detailed Sentiment Analysis") + "**")
+        st.markdown("**" + get_text("sentiment_analysis_detail_title", lang) + "**")
         analysis_data = {
-            "Danh Mục" if lang == "vi" else "Category": [
-                "Tài Chính" if lang == "vi" else "Financial",
-                "Hoạt Động" if lang == "vi" else "Operations",
-                "Thị Trường" if lang == "vi" else "Market",
-                "Quản Lý" if lang == "vi" else "Management",
-                "Rủi Ro" if lang == "vi" else "Risk"
+            get_text("sentiment_category_name", lang): [
+                get_text("sentiment_category_financial", lang),
+                get_text("sentiment_category_operations", lang),
+                get_text("sentiment_category_market", lang),
+                get_text("sentiment_category_management", lang),
+                get_text("sentiment_category_risk", lang)
             ],
-            "Điểm Trung Bình" if lang == "vi" else "Average Score": [0.78, 0.72, 0.65, 0.70, 0.55],
-            "Xu Hướng" if lang == "vi" else "Trend": [
-                "↑ Tăng" if lang == "vi" else "↑ Up",
-                "→ Ổn Định" if lang == "vi" else "→ Stable",
-                "↓ Giảm" if lang == "vi" else "↓ Down",
-                "↑ Tăng" if lang == "vi" else "↑ Up",
-                "↓ Giảm" if lang == "vi" else "↓ Down"
+            get_text("sentiment_category_avg_score", lang): [0.78, 0.72, 0.65, 0.70, 0.55],
+            get_text("sentiment_category_trend", lang): [
+                get_text("sentiment_trend_up", lang),
+                get_text("sentiment_trend_stable", lang),
+                get_text("sentiment_trend_down", lang),
+                get_text("sentiment_trend_up", lang),
+                get_text("sentiment_trend_down", lang)
             ]
         }
         analysis_df = pd.DataFrame(analysis_data)
@@ -162,65 +151,36 @@ def render(feats_df: pd.DataFrame, raw_df: pd.DataFrame, ticker: str, year: int,
     with tab3:
         st.markdown(f"### {get_text('sentiment_assessment_title', lang)}")
         
-        if lang == "vi":
-            st.markdown("""
-            **Đánh Giá Tổng Thể:**
-            
-            Tình cảm thị trường đối với công ty hiện tại là **Tích Cực** với điểm trung bình **0.70/1.0**.
-            
-            **Điểm Mạnh:**
-            - Kết quả kinh doanh Q3 vượt kỳ vọng, tăng niềm tin nhà đầu tư
-            - Ký hợp đồng cung cấp với khách hàng mới mở rộng cơ hội phát triển
-            - Kế hoạch mở rộng sản xuất được phê duyệt, cho thấy tầm nhìn dài hạn
-            - Chính sách cổ tức tốt duy trì sự hỗ trợ từ cổ đông
-            
-            **Điểm Yếu:**
-            - Một số lo ngại về tình hình ngành trong bối cảnh kinh tế vĩ mô
-            - Rủi ro từ biến động giá nguyên liệu đầu vào
-            - Cạnh tranh tăng từ các đối thủ mới
-            
-            **Khuyến Nghị:**
-            - Tiếp tục cải thiện kết quả kinh doanh để duy trì niềm tin nhà đầu tư
-            - Tăng cường quản lý rủi ro và minh bạch hóa thông tin
-            - Phát triển các sản phẩm mới để tăng cạnh tranh
-            - Duy trì chính sách cổ tức hấp dẫn
-            """)
+        # Simple Assessment Logic
+        if sentiment_score > 0.7:
+            assessment_text = get_text("sentiment_assess_high", lang).format(ticker=ticker)
+            color = "green"
+        elif sentiment_score > 0.5:
+            assessment_text = get_text("sentiment_assess_medium", lang).format(ticker=ticker)
+            color = "orange"
         else:
-            st.markdown("""
-            **Overall Assessment:**
+            assessment_text = get_text("sentiment_assess_low", lang).format(ticker=ticker)
+            color = "red"
             
-            Market sentiment towards the company is currently **Positive** with an average score of **0.70/1.0**.
-            
-            **Strengths:**
-            - Q3 business results exceeded expectations, boosting investor confidence
-            - Signed supply contract with new customer expands growth opportunities
-            - Production expansion plan approved demonstrates long-term vision
-            - Good dividend policy maintains shareholder support
-            
-            **Weaknesses:**
-            - Some concerns about industry situation in current macroeconomic context
-            - Risk from volatility in raw material prices
-            - Increasing competition from new competitors
-            
-            **Recommendations:**
-            - Continue improving business results to maintain investor confidence
-            - Strengthen risk management and information transparency
-            - Develop new products to increase competitiveness
-            - Maintain attractive dividend policy
-            """)
+        st.markdown(f"""
+        <div style="border: 2px solid {color}; border-radius: 10px; padding: 15px; background-color: #F8FAFC;">
+            <p style="margin-bottom: 0;">{assessment_text}</p>
+        </div>
+        """, unsafe_allow_html=True)
         
         # Key metrics summary
-        st.markdown("**" + ("Chỉ Số Chính" if lang == "vi" else "Key Metrics") + "**")
+        st.markdown("**" + get_text("sentiment_key_metrics_title", lang) + "**")
         col1, col2, col3, col4 = st.columns(4)
         
         with col1:
-            st.metric("Điểm Tình Cảm Trung Bình" if lang == "vi" else "Avg Sentiment Score", "0.70", "+0.05")
+            st.metric(get_text("sentiment_metric_avg_score", lang), f"{sentiment_score:.2f}", "+0.05")
         
         with col2:
-            st.metric("Tin Tức Tích Cực (%)" if lang == "vi" else "Positive News (%)", "80%", "+5%")
+            positive_news_pct = news_df[news_df["sentiment"] > 0.6].shape[0] / news_df.shape[0]
+            st.metric(get_text("sentiment_metric_positive_pct", lang), f"{positive_news_pct:.0%}", "+5%")
         
         with col3:
-            st.metric("Độ Tin Cậy" if lang == "vi" else "Confidence", "Cao" if lang == "vi" else "High", "Ổn Định" if lang == "vi" else "Stable")
+            st.metric(get_text("sentiment_metric_confidence", lang), get_text("sentiment_confidence_high", lang), get_text("sentiment_trend_stable", lang))
         
         with col4:
-            st.metric("Xu Hướng" if lang == "vi" else "Trend", "Tăng" if lang == "vi" else "Up", "+2.5%")
+            st.metric(get_text("sentiment_metric_trend", lang), get_text("sentiment_trend_up", lang), "+2.5%")

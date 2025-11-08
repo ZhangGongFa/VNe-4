@@ -159,10 +159,54 @@ TEXTS = {
         LANG_VI: "Công ty",
         LANG_EN: "Company"
     },
-    "income_sector": {
-        LANG_VI: "Ngành",
-        LANG_EN: "Sector"
-    },
+	    "income_sector": {
+	        LANG_VI: "Ngành",
+	        LANG_EN: "Sector"
+	    },
+	    "finance_placeholder_data": {
+	        LANG_VI: "Dữ liệu {section} chi tiết sẽ được hiển thị tại đây (Cần tích hợp API dữ liệu).",
+	        LANG_EN: "Detailed {section} data will be displayed here (Requires data API integration)."
+	    },
+	    "finance_section_profitability": {
+	        LANG_VI: "Hiệu Quả Sinh Lời",
+	        LANG_EN: "Profitability"
+	    },
+	    "finance_section_leverage": {
+	        LANG_VI: "Đòn Bẩy Tài Chính",
+	        LANG_EN: "Financial Leverage"
+	    },
+	    "metric_name": {
+	        LANG_VI: "Chỉ Số",
+	        LANG_EN: "Metric"
+	    },
+	    "metric_sector_avg": {
+	        LANG_VI: "Trung Bình Ngành",
+	        LANG_EN: "Sector Average"
+	    },
+	    "finance_assess_profit_good": {
+	        LANG_VI: "Hiệu quả sinh lời vượt trội",
+	        LANG_EN: "Superior profitability"
+	    },
+	    "finance_assess_profit_bad": {
+	        LANG_VI: "Hiệu quả sinh lời kém",
+	        LANG_EN: "Poor profitability"
+	    },
+	    "finance_assess_profit_neutral": {
+	        LANG_VI: "Hiệu quả sinh lời ở mức trung bình",
+	        LANG_EN: "Average profitability"
+	    },
+	    "finance_assess_leverage_good": {
+	        LANG_VI: "Cấu trúc vốn an toàn",
+	        LANG_EN: "Safe capital structure"
+	    },
+	    "finance_assess_leverage_bad": {
+	        LANG_VI: "Rủi ro đòn bẩy cao",
+	        LANG_EN: "High leverage risk"
+	    },
+	    "finance_assess_leverage_neutral": {
+	        LANG_VI: "Đòn bẩy ở mức chấp nhận được",
+	        LANG_EN: "Acceptable leverage"
+	    },
     
     # --- Sentiment Tab ---
     "sentiment_header": {
@@ -189,10 +233,176 @@ TEXTS = {
         LANG_VI: "Phân Tích Tình Cảm Tin Tức",
         LANG_EN: "News Sentiment Analysis"
     },
-    "sentiment_assessment_title": {
-        LANG_VI: "Đánh Giá Tổng Thể Tình Hình Cổ Phiếu",
-        LANG_EN: "Overall Stock Situation Assessment"
-    },
+	    "sentiment_assessment_title": {
+	        LANG_VI: "Đánh Giá Tổng Thể Tình Hình Cổ Phiếu",
+	        LANG_EN: "Overall Stock Situation Assessment"
+	    },
+	    
+	    # --- Sentiment Tab - New Keys ---
+	    "sentiment_col_date": {
+	        LANG_VI: "Ngày",
+	        LANG_EN: "Date"
+	    },
+	    "sentiment_col_source": {
+	        LANG_VI: "Nguồn",
+	        LANG_EN: "Source"
+	    },
+	    "sentiment_col_title": {
+	        LANG_VI: "Tiêu Đề",
+	        LANG_EN: "Title"
+	    },
+	    "sentiment_col_sentiment": {
+	        LANG_VI: "Tình Cảm",
+	        LANG_EN: "Sentiment"
+	    },
+	    "sentiment_chart_trend_name": {
+	        LANG_VI: "Điểm Tình Cảm",
+	        LANG_EN: "Sentiment Score"
+	    },
+	    "sentiment_chart_trend_title": {
+	        LANG_VI: "Xu Hướng Tình Cảm Tin Tức",
+	        LANG_EN: "News Sentiment Trend"
+	    },
+	    "sentiment_metric_score": {
+	        LANG_VI: "Điểm Tình Cảm",
+	        LANG_EN: "Sentiment Score"
+	    },
+	    "sentiment_metric_label": {
+	        LANG_VI: "Phân Loại",
+	        LANG_EN: "Classification"
+	    },
+	    "sentiment_label_positive": {
+	        LANG_VI: "Tích Cực",
+	        LANG_EN: "Positive"
+	    },
+	    "sentiment_label_neutral": {
+	        LANG_VI: "Trung Tính",
+	        LANG_EN: "Neutral"
+	    },
+	    "sentiment_label_negative": {
+	        LANG_VI: "Tiêu Cực",
+	        LANG_EN: "Negative"
+	    },
+	    "sentiment_dist_title": {
+	        LANG_VI: "Phân Phối Tình Cảm",
+	        LANG_EN: "Sentiment Distribution"
+	    },
+	    "sentiment_factors_title": {
+	        LANG_VI: "Các Yếu Tố Tác Động Chính",
+	        LANG_EN: "Key Impact Factors"
+	    },
+	    "sentiment_factor_name": {
+	        LANG_VI: "Yếu Tố",
+	        LANG_EN: "Factor"
+	    },
+	    "sentiment_factor_impact": {
+	        LANG_VI: "Tác Động (%)",
+	        LANG_EN: "Impact (%)"
+	    },
+	    "sentiment_factor_biz_results": {
+	        LANG_VI: "Kết Quả Kinh Doanh",
+	        LANG_EN: "Business Results"
+	    },
+	    "sentiment_factor_product_dev": {
+	        LANG_VI: "Phát Triển Sản Phẩm",
+	        LANG_EN: "Product Development"
+	    },
+	    "sentiment_factor_industry": {
+	        LANG_VI: "Tình Hình Ngành",
+	        LANG_EN: "Industry Situation"
+	    },
+	    "sentiment_factor_risk_mgmt": {
+	        LANG_VI: "Quản Lý Rủi Ro",
+	        LANG_EN: "Risk Management"
+	    },
+	    "sentiment_factor_outlook": {
+	        LANG_VI: "Triển Vọng Tương Lai",
+	        LANG_EN: "Future Outlook"
+	    },
+	    "sentiment_analysis_detail_title": {
+	        LANG_VI: "Chi Tiết Phân Tích Tình Cảm",
+	        LANG_EN: "Detailed Sentiment Analysis"
+	    },
+	    "sentiment_category_name": {
+	        LANG_VI: "Danh Mục",
+	        LANG_EN: "Category"
+	    },
+	    "sentiment_category_avg_score": {
+	        LANG_VI: "Điểm Trung Bình",
+	        LANG_EN: "Average Score"
+	    },
+	    "sentiment_category_trend": {
+	        LANG_VI: "Xu Hướng",
+	        LANG_EN: "Trend"
+	    },
+	    "sentiment_category_financial": {
+	        LANG_VI: "Tài Chính",
+	        LANG_EN: "Financial"
+	    },
+	    "sentiment_category_operations": {
+	        LANG_VI: "Hoạt Động",
+	        LANG_EN: "Operations"
+	    },
+	    "sentiment_category_market": {
+	        LANG_VI: "Thị Trường",
+	        LANG_EN: "Market"
+	    },
+	    "sentiment_category_management": {
+	        LANG_VI: "Quản Lý",
+	        LANG_EN: "Management"
+	    },
+	    "sentiment_category_risk": {
+	        LANG_VI: "Rủi Ro",
+	        LANG_EN: "Risk"
+	    },
+	    "sentiment_trend_up": {
+	        LANG_VI: "↑ Tăng",
+	        LANG_EN: "↑ Up"
+	    },
+	    "sentiment_trend_stable": {
+	        LANG_VI: "→ Ổn Định",
+	        LANG_EN: "→ Stable"
+	    },
+	    "sentiment_trend_down": {
+	        LANG_VI: "↓ Giảm",
+	        LANG_EN: "↓ Down"
+	    },
+	    "sentiment_assess_high": {
+	        LANG_VI: "Tình cảm thị trường đối với {ticker} hiện tại là **Rất Tích Cực**. Các tin tức và sự kiện gần đây đều hỗ trợ mạnh mẽ cho triển vọng của công ty.",
+	        LANG_EN: "Market sentiment towards {ticker} is currently **Very Positive**. Recent news and events strongly support the company's outlook."
+	    },
+	    "sentiment_assess_medium": {
+	        LANG_VI: "Tình cảm thị trường đối với {ticker} hiện tại là **Trung Tính**. Có sự cân bằng giữa các tin tức tích cực và tiêu cực. Cần theo dõi sát sao.",
+	        LANG_EN: "Market sentiment towards {ticker} is currently **Neutral**. There is a balance between positive and negative news. Close monitoring is required."
+	    },
+	    "sentiment_assess_low": {
+	        LANG_VI: "Tình cảm thị trường đối với {ticker} hiện tại là **Tiêu Cực**. Các tin tức tiêu cực đang chiếm ưu thế, có thể ảnh hưởng đến giá cổ phiếu và niềm tin nhà đầu tư.",
+	        LANG_EN: "Market sentiment towards {ticker} is currently **Negative**. Negative news is dominating, which may affect stock price and investor confidence."
+	    },
+	    "sentiment_key_metrics_title": {
+	        LANG_VI: "Các Chỉ Số Chính",
+	        LANG_EN: "Key Metrics"
+	    },
+	    "sentiment_metric_avg_score": {
+	        LANG_VI: "Điểm TB Tình Cảm",
+	        LANG_EN: "Avg Sentiment Score"
+	    },
+	    "sentiment_metric_positive_pct": {
+	        LANG_VI: "Tin Tức Tích Cực (%)",
+	        LANG_EN: "Positive News (%)"
+	    },
+	    "sentiment_metric_confidence": {
+	        LANG_VI: "Độ Tin Cậy",
+	        LANG_EN: "Confidence"
+	    },
+	    "sentiment_metric_trend": {
+	        LANG_VI: "Xu Hướng",
+	        LANG_EN: "Trend"
+	    },
+	    "sentiment_confidence_high": {
+	        LANG_VI: "Cao",
+	        LANG_EN: "High"
+	    },
     
     # --- Summary Tab (Integrated from original app.py) ---
     "summary_header": {
@@ -323,10 +533,44 @@ TEXTS = {
         LANG_VI: "Tác Động %",
         LANG_EN: "Impact %"
     },
-    "info_no_historical": {
-        LANG_VI: "Không có chuỗi dữ liệu lịch sử cho công ty này.",
-        LANG_EN: "No historical series for this company."
-    },
+	    "info_no_historical": {
+	        LANG_VI: "Không có chuỗi dữ liệu lịch sử cho công ty này.",
+	        LANG_EN: "No historical series for this company."
+	    },
+	    
+	    # --- RCM Assessment ---
+	    "summary_section_rcm": {
+	        LANG_VI: "E. Đánh Giá Rủi Ro Tổng Thể (RCM)",
+	        LANG_EN: "E. Overall Risk Assessment (RCM)"
+	    },
+	    "rcm_assessment_title": {
+	        LANG_VI: "Phân Loại Rủi Ro",
+	        LANG_EN: "Risk Classification"
+	    },
+	    "rcm_low_risk": {
+	        LANG_VI: "Rủi Ro Thấp",
+	        LANG_EN: "Low Risk"
+	    },
+	    "rcm_medium_risk": {
+	        LANG_VI: "Rủi Ro Trung Bình",
+	        LANG_EN: "Medium Risk"
+	    },
+	    "rcm_high_risk": {
+	        LANG_VI: "Rủi Ro Cao",
+	        LANG_EN: "High Risk"
+	    },
+	    "rcm_low_detail": {
+	        LANG_VI: "Công ty có PD cơ sở ({pd_final}) và PD tối đa dưới khủng hoảng ({max_pd}) đều ở mức thấp. Rủi ro vỡ nợ được đánh giá là thấp.",
+	        LANG_EN: "The company has a low baseline PD ({pd_final}) and a low maximum PD under crisis ({max_pd}). The default risk is assessed as low."
+	    },
+	    "rcm_medium_detail": {
+	        LANG_VI: "PD cơ sở ({pd_final}) ở mức trung bình và PD tối đa dưới khủng hoảng ({max_pd}) cho thấy khả năng chịu đựng ở mức chấp nhận được. Cần theo dõi sát sao.",
+	        LANG_EN: "The baseline PD ({pd_final}) is moderate, and the maximum PD under crisis ({max_pd}) indicates acceptable resilience. Close monitoring is required."
+	    },
+	    "rcm_high_detail": {
+	        LANG_VI: "PD cơ sở ({pd_final}) và/hoặc PD tối đa dưới khủng hoảng ({max_pd}) ở mức cao. Rủi ro vỡ nợ đáng kể, cần có biện pháp quản lý rủi ro khẩn cấp.",
+	        LANG_EN: "The baseline PD ({pd_final}) and/or maximum PD under crisis ({max_pd}) are high. Significant default risk, urgent risk management measures are needed."
+	    },
 }
 
 def get_text(key: str, lang: str) -> str:
