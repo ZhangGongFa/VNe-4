@@ -51,6 +51,38 @@ def inject_global_css():
 
 inject_global_css()
 
+# Additional CSS to beautify the report selector in the sidebar. This CSS is
+# injected separately from the global styling to ensure it is applied on top
+# of the base styles. Each radio option becomes a full‑width pill button
+# with a dark highlight when selected.
+st.markdown(
+    """
+    <style>
+        [data-testid="stSidebar"] .stRadio > div { flex-direction: column; }
+        [data-testid="stSidebar"] .stRadio label {
+            display: block;
+            background: #F3F4F6;
+            padding: 10px 14px;
+            border-radius: 8px;
+            margin-bottom: 6px;
+            cursor: pointer;
+            font-weight: 600;
+        }
+        [data-testid="stSidebar"] .stRadio label:hover {
+            background: #E5E7EB;
+        }
+        [data-testid="stSidebar"] .stRadio label input[type="radio"] {
+            display: none;
+        }
+        [data-testid="stSidebar"] .stRadio label[aria-checked="true"] {
+            background: #1F2937;
+            color: white;
+        }
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
+
 
 # =========================================
 # Data loader (resilient)
@@ -189,59 +221,81 @@ if "display_year" in scoped.columns:
         recent10 = recent10[-10:]
     scoped = scoped[scoped["display_year"].astype(str).isin(recent10)]
 
-# KPI row (simple, safe even with partial data)
-col1, col2, col3 = st.columns(3)
-def _fmt(v):
+# ========== KPI row ==========
+# Dynamically compute and display a few key indicators based on the most
+# recent year for the selected ticker. The helpers below gracefully
+# handle missing columns.
+def _get_col(row, candidates):
+    """Return the first available column value from candidates or None."""
+    for c in candidates:
+        if c in row and pd.notnull(row[c]):
+            return row[c]
+    return None
+
+# Determine the most recent record by display_year (string or numeric)
+recent_row = None
+if not scoped.empty:
     try:
-        return f"{float(v):,.1f}"
+        # Convert display_year to sort properly if it exists
+        if "display_year" in scoped.columns:
+            tmp = scoped.copy().dropna(subset=["display_year"])
+            # sort by length then value to handle FY2017 vs 2017 etc.
+            tmp = tmp.sort_values(by="display_year", key=lambda x: x.astype(str).map(lambda v: (len(v), v)))
+            recent_row = tmp.iloc[-1]
+        else:
+            recent_row = scoped.iloc[-1]
+    except Exception:
+        recent_row = scoped.iloc[-1]
+
+net_rev_val = gross_margin_val = roe_val = None
+if recent_row is not None:
+    # Net revenue: try a list of possible column names
+    net_rev = _get_col(recent_row, ["Net Revenue", "Revenue (Bn. VND)", "Revenue", "Net Sales"])
+    gross_profit = _get_col(recent_row, ["Gross Profit"])
+    if isinstance(net_rev, (int, float)) and net_rev != 0 and isinstance(gross_profit, (int, float)):
+        gross_margin_val = gross_profit / net_rev
+    net_profit = _get_col(recent_row, ["Net Profit For the Year", "Profit before tax", "Operating Profit/Loss"])
+    equity = _get_col(recent_row, ["OWNER'S EQUITY(Bn.VND)", "Equity", "Total Equity"])
+    if isinstance(net_profit, (int, float)) and isinstance(equity, (int, float)) and equity != 0:
+        roe_val = net_profit / equity
+    net_rev_val = net_rev
+
+# Display KPI cards
+col1, col2, col3 = st.columns(3)
+def _fmt_val(val, pct=False):
+    if val is None or pd.isna(val):
+        return "—"
+    try:
+        if pct:
+            return f"{val*100:.1f}%"
+        return f"{float(val):,.1f}"
     except Exception:
         return "—"
 
 with col1:
-    st.markdown('<div class="kpi-card"><div class="kpi-title">Net Revenue (last)</div><div class="kpi-value">—</div></div>', unsafe_allow_html=True)
+    st.markdown(f'<div class="kpi-card"><div class="kpi-title">Net Revenue (last)</div><div class="kpi-value">{_fmt_val(net_rev_val)}</div></div>', unsafe_allow_html=True)
 with col2:
-    st.markdown('<div class="kpi-card"><div class="kpi-title">Gross Margin</div><div class="kpi-value">—</div></div>', unsafe_allow_html=True)
+    st.markdown(f'<div class="kpi-card"><div class="kpi-title">Gross Margin</div><div class="kpi-value">{_fmt_val(gross_margin_val, pct=True)}</div></div>', unsafe_allow_html=True)
 with col3:
-    st.markdown('<div class="kpi-card"><div class="kpi-title">ROE</div><div class="kpi-value">—</div></div>', unsafe_allow_html=True)
+    st.markdown(f'<div class="kpi-card"><div class="kpi-title">ROE</div><div class="kpi-value">{_fmt_val(roe_val, pct=True)}</div></div>', unsafe_allow_html=True)
 
-# Top-level tabs (English labels only)
-tabs = st.tabs(["Income statement", "Balance Sheet", "Cashflow Statement", "Financial Indicator", "Report"])
-
-with tabs[0]:
+# ========== Report content ==========
+# Based on the selected report type from the sidebar, render the appropriate
+# module. Financial view displays the full set of financial statements and
+# indicators via its own sub‑tabs. Sentiment and Summary provide compact
+# views.
+if report_tab == "Financial":
     try:
-        financial.render(scoped)  # your module will open sub-tabs and render income statement etc.
+        financial.render(scoped)
     except Exception as e:
-        st.warning(f"Income statement view is not available. Detail: {e}")
-
-with tabs[1]:
+        st.warning(f"Financial view is not available. Detail: {e}")
+elif report_tab == "Sentiment":
     try:
-        # financial.render already includes sub-tabs for Balance Sheet; but if you separated, call dedicated renderer.
-        # To avoid double work, keep a simple note here:
-        st.caption("Open the Financial tab for Balance Sheet sub-tab if you combined them there.")
+        sentiment.render(scoped)
     except Exception as e:
-        st.warning(f"Balance Sheet view is not available. Detail: {e}")
-
-with tabs[2]:
+        st.warning(f"Sentiment view is not available. Detail: {e}")
+elif report_tab == "Summary":
     try:
-        st.caption("Open the Financial tab for Cashflow sub-tab if you combined them there.")
+        summary.render(scoped)
     except Exception as e:
-        st.warning(f"Cashflow view is not available. Detail: {e}")
-
-with tabs[3]:
-    try:
-        # If you wrote a dedicated subtab module for indicators, it is called inside financial.render.
-        # Here we only provide a placeholder if you want a flat view:
-        st.caption("Financial indicators are available in the Financial tab > Financial Indicator.")
-    except Exception as e:
-        st.warning(f"Financial Indicator view is not available. Detail: {e}")
-
-with tabs[4]:
-    try:
-        # Notes/report; keep graceful if missing
-        if "notes" in scoped.columns and not scoped["notes"].dropna().empty:
-            st.subheader("Notes")
-            st.dataframe(scoped[["display_year", "notes"]].rename(columns={"display_year": "Year", "notes": "Notes"}), use_container_width=True)
-        else:
-            st.info("Notes section not found.")
-    except Exception as e:
-        st.warning(f"Report view is not available. Detail: {e}")
+        st.warning(f"Summary view is not available. Detail: {e}")
