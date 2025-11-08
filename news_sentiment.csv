@@ -1,0 +1,14 @@
+Ticker,Year,Date,Title,Sentiment_Score,Sentiment_Label
+AAA,2025,2025-08-05,"An Phát Xanh (AAA) lên kế hoạch phát hành gần 11,5 triệu cổ phiếu ESOP giá 0 đồng",1.0,Rất Tích Cực
+AAA,2024,2024-10-02,Chủ tịch Nhựa An Phát Xanh (AAA) được đề cử vào HĐQT An Phát Holdings (APH),0.0,Trung Lập
+AAM,2025,2025-10-16,Lợi nhuận quý III/2025 của AAM tăng ba con số,0.714,Rất Tích Cực
+AAM,2024,2024-04-01,AAM: Báo lỗ hơn 2 tỷ đồng trong quý đầu năm 2024,0.0,Trung Lập
+AAT,2024,2024-04-24,AAT: Vì sao cổ phiếu bị đưa vào diện cảnh báo?,-1.0,Rất Tiêu Cực
+AAV,2024,2024-05-10,"AAV: Cổ phiếu gây sốc với mức tăng 127% trong 1 tháng dù thua lỗ triền miên, hiện đã quay đầu giảm sâu",-0.4,Tiêu Cực
+AAH,2024,2024-06-06,"Lãnh đạo AAH đăng ký bán 9 triệu cp, Chủ tịch mua vào",-0.6,Tiêu Cực
+AAH,2025,2025-10-21,"BCTC Q3/2025 AAH: lợi nhuận sau thuế giảm 98,75%",-0.9,Rất Tiêu Cực
+A32,2025,2025-07-15,A32 duy trì chính sách cổ tức đều đặn với 2 đợt trả cổ tức năm 2024,0.8,Rất Tích Cực
+ABC,2025,2025-03-31,ABC báo lãi thấp nhất 17 năm và không chia cổ tức năm 2024,-0.8,Rất Tiêu Cực
+ABT,2025,2025-02-24,"ABT tạm ứng cổ tức tỷ lệ 30%, cổ phiếu tăng kịch trần",0.9,Rất Tích Cực
+ABR,2025,2025-09-19,ABR chi cổ tức tiền mặt 20% dù lợi nhuận nửa năm giảm,0.3,Tích Cực
+ABS,2025,2025-08-18,ABS báo lỗ kỷ lục 295 tỷ đồng và bị kiểm toán ngoại trừ,-1.0,Rất Tiêu Cực
