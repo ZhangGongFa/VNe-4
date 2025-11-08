@@ -310,9 +310,9 @@ st.markdown("---")
 # ---------- Render based on selected report type ----------
 try:
     if st.session_state.report_tab == "Finance":
-        financial.render(feats_df, raw_df, ticker, year, sector_bucket)
+        financial.render(feats_df, raw_df, ticker, year, model, thresholds, sector_bucket, final_features)
     elif st.session_state.report_tab == "Sentiment":
-        sentiment.render(feats_df, raw_df, ticker, year, sector_bucket)
+        sentiment.render(feats_df, raw_df, ticker, year, model, thresholds, sector_bucket, final_features)
     elif st.session_state.report_tab == "Summary":
         summary.render(feats_df, raw_df, ticker, year, model, thresholds, sector_bucket, final_features)
 except Exception as e:
