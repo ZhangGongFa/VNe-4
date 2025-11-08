@@ -16,9 +16,6 @@ from utils_new.policy import load_thresholds, thresholds_for_sector, classify_pd
 # ==== Import các tab chức năng ====
 from tabs import financial, sentiment, summary
 
-# ==== Import language configuration ====
-from utils_new.lang import LANG_VI, LANG_EN, get_text, T
-
 warnings.filterwarnings("ignore", category=UserWarning)
 
 # ---------- Page config & styles ----------
@@ -72,10 +69,6 @@ def inject_global_css():
     """, unsafe_allow_html=True)
 
 inject_global_css()
-
-# ---------- Initialize language session state ----------
-if 'current_lang' not in st.session_state:
-    st.session_state.current_lang = LANG_VI
 
 # ---------- Small helpers ----------
 ID_LABEL_COLS = {"Year","Ticker","Sector","Exchange","Default"}
@@ -191,64 +184,89 @@ final_features = select_features_for_model(feats_df, candidate_features, model_f
 
 # ---------- Sidebar ----------
 with st.sidebar:
-    # Language selector
-    st.markdown("### 🌐 Ngôn Ngữ / Language")
-    lang_col1, lang_col2 = st.columns(2)
-    with lang_col1:
-        if st.button("🇻🇳 Việt", key="lang_vi", use_container_width=True):
-            st.session_state.current_lang = LANG_VI
-            st.rerun()
-    with lang_col2:
-        if st.button("🇬🇧 English", key="lang_en", use_container_width=True):
-            st.session_state.current_lang = LANG_EN
-            st.rerun()
-    
+    # --- Language selection ---
+    st.header("Ngôn ngữ / Language")
+    # Provide language options. The first entry is Vietnamese, second English.
+    lang_option = st.selectbox(
+        "Chọn ngôn ngữ / Select language",
+        options=["Tiếng Việt", "English"],
+        index=0,
+        key="sb_language"
+    )
+    # Map display language to internal code
+    lang_code = 'vi' if lang_option == "Tiếng Việt" else 'en'
+    # Persist selected language in session state for access across components
+    st.session_state['lang'] = lang_code
+
     st.markdown("---")
-    st.header(get_text("sidebar_ticker_header", st.session_state.current_lang))
-    
+    # --- Ticker and year selection ---
+    # Display header according to language
+    st.header("Lựa chọn Ticker" if lang_code == 'vi' else "Select Ticker")
+
     tickers = sorted(feats_df["Ticker"].astype(str).unique().tolist())
-    ticker = st.selectbox(get_text("select_ticker", st.session_state.current_lang), tickers, index=0 if tickers else None, key="sb_ticker")
-    
-    years_avail = sorted(feats_df.loc[feats_df["Ticker"].astype(str)==ticker, "Year"].dropna().astype(int).unique().tolist())
-    year_idx = len(years_avail)-1 if years_avail else 0
-    year = st.selectbox(get_text("select_year", st.session_state.current_lang), years_avail, index=year_idx, key=f"sb_year_{ticker}")
-    
+    ticker_label = "Chọn mã cổ phiếu" if lang_code == 'vi' else "Choose ticker"
+    ticker = st.selectbox(ticker_label, tickers, index=0 if tickers else None, key="sb_ticker")
+
+    # Build list of available years for the selected ticker
+    years_avail = sorted(
+        feats_df.loc[feats_df["Ticker"].astype(str) == ticker, "Year"].dropna().astype(int).unique().tolist()
+    )
+    year_idx = len(years_avail) - 1 if years_avail else 0
+    year_label = "Chọn năm" if lang_code == 'vi' else "Choose year"
+    year = st.selectbox(year_label, years_avail, index=year_idx, key=f"sb_year_{ticker}")
+
     st.markdown("---")
-    st.header(get_text("sidebar_report_header", st.session_state.current_lang))
-    
-    # Initialize session state for report selection
+    # --- Report tab selection ---
+    report_header = "Loại Báo Cáo" if lang_code == 'vi' else "Report Type"
+    st.header(report_header)
+
+    # Initialize session state for report selection if not set
     if 'report_tab' not in st.session_state:
         st.session_state.report_tab = "Summary"
-    
+
+    # Determine button labels based on language
+    finance_label   = "📊 Tài chính" if lang_code == 'vi' else "📊 Finance"
+    sentiment_label = "📰 Tình cảm" if lang_code == 'vi' else "📰 Sentiment"
+    summary_label   = "📈 Tóm tắt" if lang_code == 'vi' else "📈 Summary"
+
     # Create button columns for report selection
     col1, col2, col3 = st.columns(3)
-    
+
     with col1:
-        if st.button(get_text("btn_finance", st.session_state.current_lang), key="btn_financial", use_container_width=True):
+        if st.button(finance_label, key="btn_financial", use_container_width=True):
             st.session_state.report_tab = "Finance"
-    
+
     with col2:
-        if st.button(get_text("btn_sentiment", st.session_state.current_lang), key="btn_sentiment", use_container_width=True):
+        if st.button(sentiment_label, key="btn_sentiment", use_container_width=True):
             st.session_state.report_tab = "Sentiment"
-    
+
     with col3:
-        if st.button(get_text("btn_summary", st.session_state.current_lang), key="btn_summary", use_container_width=True):
+        if st.button(summary_label, key="btn_summary", use_container_width=True):
             st.session_state.report_tab = "Summary"
-    
+
     st.markdown("---")
-    
-    # Display description based on selection
-    if st.session_state.report_tab == "Finance":
-        st.info(get_text("desc_finance", st.session_state.current_lang))
-    elif st.session_state.report_tab == "Sentiment":
-        st.info(get_text("desc_sentiment", st.session_state.current_lang))
-    elif st.session_state.report_tab == "Summary":
-        st.info(get_text("desc_summary", st.session_state.current_lang))
+
+    # Display description based on selected tab and language
+    if lang_code == 'vi':
+        descriptions = {
+            "Finance": "📊 **Phân Tích Tài Chính**\n\nXem báo cáo thu nhập, bảng cân đối kế toán, báo cáo lưu chuyển tiền mặt và các chỉ số tài chính chính.",
+            "Sentiment": "📰 **Phân Tích Tình Cảm**\n\nPhân tích tình cảm tin tức và nhận thức thị trường liên quan đến cổ phiếu đã chọn.",
+            "Summary": "📈 **Tóm Tắt Rủi Ro**\n\nXem các chỉ số rủi ro toàn diện và số liệu xác suất vỡ nợ."
+        }
+    else:
+        descriptions = {
+            "Finance": "📊 **Financial Analysis**\n\nView the income statement, balance sheet, cash flow statement and key financial ratios.",
+            "Sentiment": "📰 **Sentiment Analysis**\n\nAnalyze news sentiment and market perception related to the selected stock.",
+            "Summary": "📈 **Summary & Risk Overview**\n\nView comprehensive risk metrics and default probability measurements."
+        }
+
+    if st.session_state.report_tab in descriptions:
+        st.info(descriptions[st.session_state.report_tab])
 
 # ---------- Get selected data ----------
 row_model = feats_df[(feats_df["Ticker"].astype(str)==ticker) & (feats_df["Year"]==year)]
 if row_model.empty:
-    st.warning(get_text("warning_no_data", st.session_state.current_lang))
+    st.warning("Không có dữ liệu cho Ticker & Năm đã chọn.")
     st.stop()
 row_model = row_model.iloc[0]
 
@@ -309,12 +327,14 @@ st.markdown("---")
 
 # ---------- Render based on selected report type ----------
 try:
+    # Pass language code from session state to each tab renderer
+    lang_code = st.session_state.get('lang', 'vi')
     if st.session_state.report_tab == "Finance":
-        financial.render(feats_df, raw_df, ticker, year, model, thresholds, sector_bucket, final_features)
+        financial.render(feats_df, raw_df, ticker, year, sector_bucket, lang_code)
     elif st.session_state.report_tab == "Sentiment":
-        sentiment.render(feats_df, raw_df, ticker, year, model, thresholds, sector_bucket, final_features)
+        sentiment.render(feats_df, raw_df, ticker, year, sector_bucket, lang_code)
     elif st.session_state.report_tab == "Summary":
-        summary.render(feats_df, raw_df, ticker, year, model, thresholds, sector_bucket, final_features)
+        summary.render(feats_df, raw_df, ticker, year, model, thresholds, sector_bucket, final_features, lang_code)
 except Exception as e:
     st.error(f"Lỗi khi hiển thị tab {st.session_state.report_tab}: {str(e)}")
     st.exception(e)
