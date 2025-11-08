@@ -88,9 +88,9 @@ def render(feats_df: pd.DataFrame, raw_df: pd.DataFrame, ticker: str, year: int,
         st.markdown("---")
         
         # Main dashboard charts
-        col1, col2 = st.columns(2)
+        chart_col1, chart_col2 = st.columns(2)
         
-        with col1:
+        with chart_col1:
             # Financial performance trend
             hist = raw_df[raw_df["Ticker"].astype(str)==ticker].sort_values("Year")
             years = hist["Year"].astype(int).tolist()[-5:]
@@ -99,14 +99,14 @@ def render(feats_df: pd.DataFrame, raw_df: pd.DataFrame, ticker: str, year: int,
             revenues = [850, 920, 950, 1000, 1050]
             profits = [150, 165, 180, 200, 220]
             
-            fig = go.Figure()
-            fig.add_trace(go.Bar(
+            fig1 = go.Figure()
+            fig1.add_trace(go.Bar(
                 x=years,
                 y=revenues,
                 name="Doanh Thu",
                 marker_color="rgba(10, 102, 194, 0.8)"
             ))
-            fig.add_trace(go.Scatter(
+            fig1.add_trace(go.Scatter(
                 x=years,
                 y=profits,
                 name="Lợi Nhuận",
@@ -116,7 +116,7 @@ def render(feats_df: pd.DataFrame, raw_df: pd.DataFrame, ticker: str, year: int,
                 marker=dict(size=8)
             ))
             
-            fig.update_layout(
+            fig1.update_layout(
                 title="Xu Hướng Doanh Thu & Lợi Nhuận",
                 xaxis_title="Năm",
                 yaxis=dict(title="Doanh Thu (Tỷ VND)"),
@@ -124,68 +124,39 @@ def render(feats_df: pd.DataFrame, raw_df: pd.DataFrame, ticker: str, year: int,
                 hovermode="x unified",
                 height=350
             )
-            st.plotly_chart(fig, use_container_width=True)
+            st.plotly_chart(fig1, use_container_width=True, key="summary_trend_chart")
         
-        with col2:
+        with chart_col2:
             # Risk indicators gauge
-            fig = make_subplots(
+            fig2 = make_subplots(
                 rows=1, cols=3,
-                specs=[[{"type": "indicator"}, {"type": "indicator"}, {"type": "indicator"}]]
+                specs=[[{"type": "indicator"}, {"type": "indicator"}, {"type": "indicator"}]],
+                subplot_titles=("Sức Khỏe TC", "Rủi Ro TD", "PD")
             )
             
-            fig.add_trace(
+            fig2.add_trace(
                 go.Indicator(
-                    mode="gauge+number+delta",
-                    value=72,
-                    title={"text": "Sức Khỏe Tài Chính"},
-                    domain={"x": [0, 1], "y": [0, 1]},
-                    gauge={"axis": {"range": [0, 100]},
-                           "bar": {"color": "rgba(34, 197, 94, 0.8)"},
-                           "steps": [
-                               {"range": [0, 33], "color": "rgba(239, 68, 68, 0.2)"},
-                               {"range": [33, 66], "color": "rgba(251, 191, 36, 0.2)"},
-                               {"range": [66, 100], "color": "rgba(34, 197, 94, 0.2)"}
-                           ]}
-                ),
-                row=1, col=1
+                    mode="gauge+number", value=72, title={"text": "Sức Khỏe TC"},
+                    gauge={"axis": {"range": [0, 100]}, "bar": {"color": "rgba(34, 197, 94, 0.8)"}}
+                ), row=1, col=1
             )
             
-            fig.add_trace(
+            fig2.add_trace(
                 go.Indicator(
-                    mode="gauge+number+delta",
-                    value=45,
-                    title={"text": "Rủi Ro Tín Dụng"},
-                    domain={"x": [0, 1], "y": [0, 1]},
-                    gauge={"axis": {"range": [0, 100]},
-                           "bar": {"color": "rgba(251, 191, 36, 0.8)"},
-                           "steps": [
-                               {"range": [0, 33], "color": "rgba(34, 197, 94, 0.2)"},
-                               {"range": [33, 66], "color": "rgba(251, 191, 36, 0.2)"},
-                               {"range": [66, 100], "color": "rgba(239, 68, 68, 0.2)"}
-                           ]}
-                ),
-                row=1, col=2
+                    mode="gauge+number", value=45, title={"text": "Rủi Ro TD"},
+                    gauge={"axis": {"range": [0, 100]}, "bar": {"color": "rgba(251, 191, 36, 0.8)"}}
+                ), row=1, col=2
             )
             
-            fig.add_trace(
+            fig2.add_trace(
                 go.Indicator(
-                    mode="gauge+number+delta",
-                    value=28,
-                    title={"text": "Xác Suất Vỡ Nợ (PD)"},
-                    domain={"x": [0, 1], "y": [0, 1]},
-                    gauge={"axis": {"range": [0, 100]},
-                           "bar": {"color": "rgba(34, 197, 94, 0.8)"},
-                           "steps": [
-                               {"range": [0, 20], "color": "rgba(34, 197, 94, 0.2)"},
-                               {"range": [20, 50], "color": "rgba(251, 191, 36, 0.2)"},
-                               {"range": [50, 100], "color": "rgba(239, 68, 68, 0.2)"}
-                           ]}
-                ),
-                row=1, col=3
+                    mode="gauge+number", value=28, title={"text": "Xác Suất Vỡ Nợ (PD)"},
+                    gauge={"axis": {"range": [0, 100]}, "bar": {"color": "rgba(239, 68, 68, 0.8)"}}
+                ), row=1, col=3
             )
             
-            fig.update_layout(height=350)
-            st.plotly_chart(fig, use_container_width=True)
+            fig2.update_layout(height=350, title_text="Các Chỉ Báo Rủi Ro Chính")
+            st.plotly_chart(fig2, use_container_width=True, key="summary_gauge_chart")
         
         st.markdown("---")
         
@@ -206,7 +177,7 @@ def render(feats_df: pd.DataFrame, raw_df: pd.DataFrame, ticker: str, year: int,
         }
         
         ratios_df = pd.DataFrame(ratios_data)
-        st.dataframe(ratios_df, use_container_width=True, hide_index=True)
+        st.dataframe(ratios_df, use_container_width=True, hide_index=True, key="summary_ratios_df")
     
     # ==================== TAB 2: RISK ASSESSMENT ====================
     with tab2:
@@ -214,15 +185,15 @@ def render(feats_df: pd.DataFrame, raw_df: pd.DataFrame, ticker: str, year: int,
         st.markdown(f"**Công ty:** {ticker} | **Năm:** {year} | **Ngành:** {sector}")
         
         # Risk score summary
-        col1, col2, col3 = st.columns(3)
+        risk_col1, risk_col2, risk_col3 = st.columns(3)
         
-        with col1:
+        with risk_col1:
             st.metric("Điểm Rủi Ro Tổng Thể", "45/100", "Bình Thường")
         
-        with col2:
+        with risk_col2:
             st.metric("Xác Suất Vỡ Nợ (PD)", "28%", "Trung Bình")
         
-        with col3:
+        with risk_col3:
             st.metric("Hạng Tín Dụng Dự Kiến", "BB", "Ổn Định")
         
         st.markdown("---")
@@ -238,13 +209,7 @@ def render(feats_df: pd.DataFrame, raw_df: pd.DataFrame, ticker: str, year: int,
                 "Rủi Ro Thị Trường",
                 "Rủi Ro Pháp Lý"
             ],
-            "Mức Độ": [
-                "Trung Bình",
-                "Thấp",
-                "Trung Bình",
-                "Trung Bình",
-                "Thấp"
-            ],
+            "Mức Độ": ["Trung Bình", "Thấp", "Trung Bình", "Trung Bình", "Thấp"],
             "Điểm": [55, 25, 50, 45, 20],
             "Mô Tả": [
                 "Tỷ lệ nợ ở mức chấp nhận được",
@@ -256,10 +221,10 @@ def render(feats_df: pd.DataFrame, raw_df: pd.DataFrame, ticker: str, year: int,
         }
         
         risk_df = pd.DataFrame(risk_categories)
-        st.dataframe(risk_df, use_container_width=True, hide_index=True)
+        st.dataframe(risk_df, use_container_width=True, hide_index=True, key="risk_categories_df")
         
         # Risk radar chart
-        fig = go.Figure(data=go.Scatterpolar(
+        fig3 = go.Figure(data=go.Scatterpolar(
             r=risk_categories["Điểm"],
             theta=risk_categories["Danh Mục Rủi Ro"],
             fill='toself',
@@ -267,26 +232,21 @@ def render(feats_df: pd.DataFrame, raw_df: pd.DataFrame, ticker: str, year: int,
             marker=dict(color='rgba(10, 102, 194, 0.8)')
         ))
         
-        fig.update_layout(
-            polar=dict(
-                radialaxis=dict(
-                    visible=True,
-                    range=[0, 100]
-                )
-            ),
+        fig3.update_layout(
+            polar=dict(radialaxis=dict(visible=True, range=[0, 100])),
             title="Bản Đồ Rủi Ro (Risk Radar)",
             height=400
         )
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig3, use_container_width=True, key="risk_radar_chart")
         
         st.markdown("---")
         
         # Specific risk factors
         st.markdown("#### Các Yếu Tố Rủi Ro Cụ Thể")
         
-        col1, col2 = st.columns(2)
+        factor_col1, factor_col2 = st.columns(2)
         
-        with col1:
+        with factor_col1:
             st.markdown("**Rủi Ro Cao:**")
             st.warning("""
             **Mẫu Nội Dung:**
@@ -295,7 +255,7 @@ def render(feats_df: pd.DataFrame, raw_df: pd.DataFrame, ticker: str, year: int,
             - Cạnh tranh tăng từ các đối thủ mới
             """)
         
-        with col2:
+        with factor_col2:
             st.markdown("**Rủi Ro Trung Bình:**")
             st.info("""
             **Mẫu Nội Dung:**
@@ -334,29 +294,17 @@ def render(feats_df: pd.DataFrame, raw_df: pd.DataFrame, ticker: str, year: int,
         
         model_info = {
             "Thông Tin": [
-                "Loại Mô Hình",
-                "Thuật Toán",
-                "Số Lượng Đặc Trưng",
-                "Độ Chính Xác (Accuracy)",
-                "AUC-ROC",
-                "Precision",
-                "Recall",
-                "F1-Score"
+                "Loại Mô Hình", "Thuật Toán", "Số Lượng Đặc Trưng", "Độ Chính Xác (Accuracy)",
+                "AUC-ROC", "Precision", "Recall", "F1-Score"
             ],
             "Giá Trị": [
-                "Phân Loại Nhị Phân",
-                "LightGBM",
-                "45",
-                "92.5%",
-                "0.945",
-                "0.88",
-                "0.85",
-                "0.865"
+                "Phân Loại Nhị Phân", "LightGBM", "45", "92.5%",
+                "0.945", "0.88", "0.85", "0.865"
             ]
         }
         
         model_info_df = pd.DataFrame(model_info)
-        st.dataframe(model_info_df, use_container_width=True, hide_index=True)
+        st.dataframe(model_info_df, use_container_width=True, hide_index=True, key="model_info_df")
         
         st.markdown("---")
         
@@ -365,21 +313,15 @@ def render(feats_df: pd.DataFrame, raw_df: pd.DataFrame, ticker: str, year: int,
         
         top_features = {
             "Đặc Trưng": [
-                "Tỷ Lệ Nợ/Tài Sản",
-                "ROA",
-                "Tỷ Lệ Thanh Khoản Hiện Tại",
-                "Tỷ Lệ Nợ/Vốn Chủ",
-                "Biên Lợi Nhuận Ròng",
-                "Vòng Quay Tài Sản",
-                "Tăng Trưởng Doanh Thu",
-                "Chi Phí Lãi Vay/Doanh Thu"
+                "Tỷ Lệ Nợ/Tài Sản", "ROA", "Tỷ Lệ Thanh Khoản Hiện Tại", "Tỷ Lệ Nợ/Vốn Chủ",
+                "Biên Lợi Nhuận Ròng", "Vòng Quay Tài Sản", "Tăng Trưởng Doanh Thu", "Chi Phí Lãi Vay/Doanh Thu"
             ],
             "Mức Độ Quan Trọng": [0.185, 0.152, 0.128, 0.115, 0.095, 0.082, 0.078, 0.065]
         }
         
         top_features_df = pd.DataFrame(top_features)
         
-        fig = go.Figure(data=[
+        fig4 = go.Figure(data=[
             go.Bar(
                 y=top_features_df["Đặc Trưng"],
                 x=top_features_df["Mức Độ Quan Trọng"],
@@ -388,25 +330,25 @@ def render(feats_df: pd.DataFrame, raw_df: pd.DataFrame, ticker: str, year: int,
             )
         ])
         
-        fig.update_layout(
+        fig4.update_layout(
             title="Tầm Quan Trọng Của Các Đặc Trưng",
             xaxis_title="Mức Độ Quan Trọng",
             height=350
         )
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig4, use_container_width=True, key="feature_importance_chart")
         
         st.markdown("---")
         
         # Prediction details
         st.markdown("#### Chi Tiết Dự Báo")
         
-        col1, col2 = st.columns(2)
+        pred_col1, pred_col2 = st.columns(2)
         
-        with col1:
+        with pred_col1:
             st.metric("Xác Suất Vỡ Nợ (PD)", "28.5%")
             st.metric("Độ Tin Cậy", "92.5%")
         
-        with col2:
+        with pred_col2:
             st.metric("Phân Loại Rủi Ro", "Trung Bình")
             st.metric("Hạng Tín Dụng", "BB")
         
