@@ -1,0 +1,8 @@
+# .streamlit/config.toml
+[theme]
+base="light"
+primaryColor="#0A66C2"
+backgroundColor="#F7F8FA"
+secondaryBackgroundColor="#FFFFFF"
+textColor="#1B1F24"
+font="sans serif"
