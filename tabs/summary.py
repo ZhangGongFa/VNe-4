@@ -249,7 +249,7 @@ def compute_pd(row_model: pd.Series, row_raw: pd.Series, model, final_features: 
 # -----------------------------------------------------------------------------
 
 def render(feats_df: pd.DataFrame, raw_df: pd.DataFrame, ticker: str, year: int,
-           model, thresholds, sector: str, final_features: list, lang: str = 'vi') -> None:
+           model, thresholds, sector: str, final_features: list, lang: str = 'vi', *args) -> None:
     """
     Render the Summary & Risk Assessment tab.
 

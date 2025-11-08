@@ -72,7 +72,7 @@ def _t(key: str, lang: str) -> str:
 
 
 def render(feats_df: pd.DataFrame, raw_df: pd.DataFrame, ticker: str, year: int,
-           sector: str, lang: str = 'vi') -> None:
+           sector: str, lang: str = 'vi', *args) -> None:
     """
     Render the Sentiment Analysis tab.
 
