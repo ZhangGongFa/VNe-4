@@ -44,44 +44,53 @@ def inject_global_css():
 
             /* Dataframe header contrast */
             .stDataFrame thead tr th { background: #f9fafb; }
+            
+            /* Report buttons styling */
+            .report-button-container {
+                display: flex;
+                flex-direction: column;
+                gap: 10px;
+                margin-top: 10px;
+            }
+            .report-btn {
+                width: 100%;
+                padding: 12px 16px;
+                border: 2px solid #E5E7EB;
+                border-radius: 10px;
+                background: white;
+                cursor: pointer;
+                text-align: left;
+                font-weight: 600;
+                font-size: 14px;
+                transition: all 0.2s;
+            }
+            .report-btn:hover {
+                border-color: #0A66C2;
+                background: #F0F7FF;
+            }
+            .report-btn.active {
+                border-color: #0A66C2;
+                background: #0A66C2;
+                color: white;
+            }
+            .report-btn-title {
+                font-size: 15px;
+                font-weight: 700;
+                margin-bottom: 4px;
+            }
+            .report-btn-desc {
+                font-size: 12px;
+                color: #6b7280;
+            }
+            .report-btn.active .report-btn-desc {
+                color: rgba(255,255,255,0.8);
+            }
         </style>
         """,
         unsafe_allow_html=True,
     )
 
 inject_global_css()
-
-# Additional CSS to beautify the report selector in the sidebar. This CSS is
-# injected separately from the global styling to ensure it is applied on top
-# of the base styles. Each radio option becomes a full‑width pill button
-# with a dark highlight when selected.
-st.markdown(
-    """
-    <style>
-        [data-testid="stSidebar"] .stRadio > div { flex-direction: column; }
-        [data-testid="stSidebar"] .stRadio label {
-            display: block;
-            background: #F3F4F6;
-            padding: 10px 14px;
-            border-radius: 8px;
-            margin-bottom: 6px;
-            cursor: pointer;
-            font-weight: 600;
-        }
-        [data-testid="stSidebar"] .stRadio label:hover {
-            background: #E5E7EB;
-        }
-        [data-testid="stSidebar"] .stRadio label input[type="radio"] {
-            display: none;
-        }
-        [data-testid="stSidebar"] .stRadio label[aria-checked="true"] {
-            background: #1F2937;
-            color: white;
-        }
-    </style>
-    """,
-    unsafe_allow_html=True,
-)
 
 
 # =========================================
@@ -129,21 +138,11 @@ def build_ticker_list(df: pd.DataFrame):
     return toks
 
 
-def filter_options(options, query):
-    if not query:
-        return options[:300]
-    query = query.upper()
-    prefix = [x for x in options if x.startswith(query)]
-    if prefix:
-        return prefix[:300]
-    return [x for x in options if query in x][:300]
-
-
 # =========================================
 # App header
 # =========================================
 st.markdown("<h1>Corporate Financial Dashboard</h1>", unsafe_allow_html=True)
-st.markdown('<div class="subtitle">Clean presentation for income statement, balance sheet, cashflow, indicators, and notes.</div>', unsafe_allow_html=True)
+st.markdown('<div class="subtitle">AI-Driven Corporate Default Risk Prediction System</div>', unsafe_allow_html=True)
 
 
 # =========================================
@@ -153,7 +152,7 @@ df = load_data()
 
 # If no data found, allow upload so the app never crashes
 if df.empty:
-    st.info("No data file was found. Please upload your CSV (same schema as your working file).")
+    st.info("No data file was found. Please upload your CSV (bctc_final.csv)")
     upl = st.file_uploader("Upload bctc_final.csv", type=["csv"])
     if upl is not None:
         df = pd.read_csv(upl)
@@ -165,17 +164,18 @@ if df.empty:
                     break
             if "Ticker" not in df.columns:
                 df["Ticker"] = "SAMPLE"
+        st.rerun()
 
 # Sidebar (premium style)
 with st.sidebar:
-    st.header("Ticker")
+    st.header("Ticker Selection")
 
     # Build the full ticker list from your data
-    all_tickers = build_ticker_list(df)  # e.g., ["HPG","VNM","FPT",...]
+    all_tickers = build_ticker_list(df)
 
     # Optional: read ?ticker=HPG from URL to preselect
-    qs = st.experimental_get_query_params()
-    url_ticker = (qs.get("ticker", [""])[0] or "").upper()
+    qs = st.query_params
+    url_ticker = (qs.get("ticker", "") or "").upper()
 
     # Decide default index
     default_index = 0
@@ -191,20 +191,50 @@ with st.sidebar:
     )
 
     st.markdown("---")
-    st.header("Report")
-    report_tab = st.radio(
-        "Report",
-        options=["Financial", "Sentiment", "Summary"],
-        index=0,
-        label_visibility="collapsed",
-    )
+    st.header("Report Type")
+    
+    # Initialize session state for report selection
+    if 'report_tab' not in st.session_state:
+        st.session_state.report_tab = "Financial"
+    
+    # Custom button styling for report selection
+    st.markdown('<div class="report-button-container">', unsafe_allow_html=True)
+    
+    col1, col2, col3 = st.columns(3)
+    
+    with col1:
+        if st.button("📊 Financial", key="btn_financial", use_container_width=True,
+                     type="primary" if st.session_state.report_tab == "Financial" else "secondary"):
+            st.session_state.report_tab = "Financial"
+    
+    with col2:
+        if st.button("📰 Sentiment", key="btn_sentiment", use_container_width=True,
+                     type="primary" if st.session_state.report_tab == "Sentiment" else "secondary"):
+            st.session_state.report_tab = "Sentiment"
+    
+    with col3:
+        if st.button("📈 Summary", key="btn_summary", use_container_width=True,
+                     type="primary" if st.session_state.report_tab == "Summary" else "secondary"):
+            st.session_state.report_tab = "Summary"
+    
+    st.markdown('</div>', unsafe_allow_html=True)
+    
+    # Display description based on selection
+    st.markdown("---")
+    descriptions = {
+        "Financial": "📊 **Financial Analysis**\n\nView income statements, balance sheets, cash flow statements, and key financial indicators.",
+        "Sentiment": "📰 **Sentiment Analysis**\n\nAnalyze news sentiment and market perception related to the selected stock.",
+        "Summary": "📈 **Risk Summary**\n\nView comprehensive risk indicators and default probability metrics."
+    }
+    st.info(descriptions[st.session_state.report_tab])
 
 # Keep URL in sync
 if selected_ticker:
-    st.experimental_set_query_params(ticker=selected_ticker)
+    st.query_params.ticker = selected_ticker
 
 # Guard if no ticker yet
 if not selected_ticker:
+    st.warning("⚠️ Please select a ticker from the sidebar to continue.")
     st.stop()
 
 # Scope data to ticker and 10 most recent years (by display_year)
@@ -213,89 +243,51 @@ if "display_year" in scoped.columns:
     recent10 = (
         scoped["display_year"].astype(str).dropna().unique().tolist()
     )
-    # Sort year labels with your util (already embedded in build_display_year_column)
+    # Sort year labels
     try:
-        # ensure chronological, then take last 10
         recent10 = sorted(recent10, key=lambda x: (len(x), x))[-10:]
     except Exception:
         recent10 = recent10[-10:]
     scoped = scoped[scoped["display_year"].astype(str).isin(recent10)]
 
-# ========== KPI row ==========
-# Dynamically compute and display a few key indicators based on the most
-# recent year for the selected ticker. The helpers below gracefully
-# handle missing columns.
-def _get_col(row, candidates):
-    """Return the first available column value from candidates or None."""
-    for c in candidates:
-        if c in row and pd.notnull(row[c]):
-            return row[c]
-    return None
-
-# Determine the most recent record by display_year (string or numeric)
-recent_row = None
-if not scoped.empty:
-    try:
-        # Convert display_year to sort properly if it exists
-        if "display_year" in scoped.columns:
-            tmp = scoped.copy().dropna(subset=["display_year"])
-            # sort by length then value to handle FY2017 vs 2017 etc.
-            tmp = tmp.sort_values(by="display_year", key=lambda x: x.astype(str).map(lambda v: (len(v), v)))
-            recent_row = tmp.iloc[-1]
-        else:
-            recent_row = scoped.iloc[-1]
-    except Exception:
-        recent_row = scoped.iloc[-1]
-
-net_rev_val = gross_margin_val = roe_val = None
-if recent_row is not None:
-    # Net revenue: try a list of possible column names
-    net_rev = _get_col(recent_row, ["Net Revenue", "Revenue (Bn. VND)", "Revenue", "Net Sales"])
-    gross_profit = _get_col(recent_row, ["Gross Profit"])
-    if isinstance(net_rev, (int, float)) and net_rev != 0 and isinstance(gross_profit, (int, float)):
-        gross_margin_val = gross_profit / net_rev
-    net_profit = _get_col(recent_row, ["Net Profit For the Year", "Profit before tax", "Operating Profit/Loss"])
-    equity = _get_col(recent_row, ["OWNER'S EQUITY(Bn.VND)", "Equity", "Total Equity"])
-    if isinstance(net_profit, (int, float)) and isinstance(equity, (int, float)) and equity != 0:
-        roe_val = net_profit / equity
-    net_rev_val = net_rev
-
-# Display KPI cards
+# KPI row with real data
 col1, col2, col3 = st.columns(3)
-def _fmt_val(val, pct=False):
-    if val is None or pd.isna(val):
-        return "—"
-    try:
-        if pct:
-            return f"{val*100:.1f}%"
-        return f"{float(val):,.1f}"
-    except Exception:
-        return "—"
+
+def safe_get_value(df, col_patterns, default="—"):
+    """Safely get value from dataframe with multiple possible column names"""
+    for pattern in col_patterns:
+        matching_cols = [c for c in df.columns if pattern.lower() in c.lower()]
+        if matching_cols:
+            vals = df[matching_cols[0]].dropna()
+            if not vals.empty:
+                try:
+                    return f"{float(vals.iloc[-1]):,.1f}"
+                except:
+                    return str(vals.iloc[-1])
+    return default
 
 with col1:
-    st.markdown(f'<div class="kpi-card"><div class="kpi-title">Net Revenue (last)</div><div class="kpi-value">{_fmt_val(net_rev_val)}</div></div>', unsafe_allow_html=True)
-with col2:
-    st.markdown(f'<div class="kpi-card"><div class="kpi-title">Gross Margin</div><div class="kpi-value">{_fmt_val(gross_margin_val, pct=True)}</div></div>', unsafe_allow_html=True)
-with col3:
-    st.markdown(f'<div class="kpi-card"><div class="kpi-title">ROE</div><div class="kpi-value">{_fmt_val(roe_val, pct=True)}</div></div>', unsafe_allow_html=True)
+    net_rev = safe_get_value(scoped, ["net revenue", "revenue", "doanh thu"])
+    st.markdown(f'<div class="kpi-card"><div class="kpi-title">Net Revenue (Latest)</div><div class="kpi-value">{net_rev}</div></div>', unsafe_allow_html=True)
 
-# ========== Report content ==========
-# Based on the selected report type from the sidebar, render the appropriate
-# module. Financial view displays the full set of financial statements and
-# indicators via its own sub‑tabs. Sentiment and Summary provide compact
-# views.
-if report_tab == "Financial":
-    try:
+with col2:
+    gross_margin = safe_get_value(scoped, ["gross margin", "gross profit margin"])
+    st.markdown(f'<div class="kpi-card"><div class="kpi-title">Gross Margin</div><div class="kpi-value">{gross_margin}</div></div>', unsafe_allow_html=True)
+
+with col3:
+    roe = safe_get_value(scoped, ["roe", "return on equity"])
+    st.markdown(f'<div class="kpi-card"><div class="kpi-title">ROE</div><div class="kpi-value">{roe}</div></div>', unsafe_allow_html=True)
+
+st.markdown("---")
+
+# Render based on selected report type
+try:
+    if st.session_state.report_tab == "Financial":
         financial.render(scoped)
-    except Exception as e:
-        st.warning(f"Financial view is not available. Detail: {e}")
-elif report_tab == "Sentiment":
-    try:
+    elif st.session_state.report_tab == "Sentiment":
         sentiment.render(scoped)
-    except Exception as e:
-        st.warning(f"Sentiment view is not available. Detail: {e}")
-elif report_tab == "Summary":
-    try:
+    elif st.session_state.report_tab == "Summary":
         summary.render(scoped)
-    except Exception as e:
-        st.warning(f"Summary view is not available. Detail: {e}")
+except Exception as e:
+    st.error(f"Error rendering {st.session_state.report_tab} tab: {str(e)}")
+    st.exception(e)
