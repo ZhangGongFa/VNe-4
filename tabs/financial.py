@@ -377,6 +377,35 @@ def render(feats_df: pd.DataFrame, raw_df: pd.DataFrame, ticker: str, year: int,
         )
         st.plotly_chart(fig, use_container_width=True, key="finance_income_chart")
 
+        # Additional visualisation: compare key income statement metrics across years
+        # Prepare series for cost of goods sold, gross profit, operating profit and net profit
+        # Some columns may not exist; provide zero fallback
+        cogs_series = ticker_raw['Cost of Sales'] if 'Cost of Sales' in ticker_raw.columns else pd.Series([0]*len(trend_years), index=ticker_raw.index)
+        gross_series = ticker_raw['Gross Profit'] if 'Gross Profit' in ticker_raw.columns else pd.Series([0]*len(trend_years), index=ticker_raw.index)
+        op_series = ticker_raw['Operating Profit/Loss'] if 'Operating Profit/Loss' in ticker_raw.columns else pd.Series([0]*len(trend_years), index=ticker_raw.index)
+        cogs_trend = [to_num(v) for v in cogs_series]
+        gross_trend = [to_num(v) for v in gross_series]
+        op_trend = [to_num(v) for v in op_series]
+        # Build multi‑line chart
+        fig_income_extra = go.Figure()
+        # Determine labels based on language
+        lbl_rev = 'Doanh Thu' if lang == 'vi' else 'Revenue'
+        lbl_cogs = 'Giá Vốn Hàng Bán' if lang == 'vi' else 'Cost of Goods Sold'
+        lbl_gross = 'Lợi Nhuận Gộp' if lang == 'vi' else 'Gross Profit'
+        lbl_op = 'Lợi Nhuận Hoạt Động' if lang == 'vi' else 'Operating Profit'
+        lbl_np = 'Lợi Nhuận Ròng' if lang == 'vi' else 'Net Profit'
+        fig_income_extra.add_trace(go.Scatter(name=lbl_rev, x=trend_years, y=trend_rev, mode='lines+markers'))
+        fig_income_extra.add_trace(go.Scatter(name=lbl_cogs, x=trend_years, y=cogs_trend, mode='lines+markers'))
+        fig_income_extra.add_trace(go.Scatter(name=lbl_gross, x=trend_years, y=gross_trend, mode='lines+markers'))
+        fig_income_extra.add_trace(go.Scatter(name=lbl_op, x=trend_years, y=op_trend, mode='lines+markers'))
+        fig_income_extra.add_trace(go.Scatter(name=lbl_np, x=trend_years, y=trend_np, mode='lines+markers'))
+        fig_income_extra.update_layout(
+            title=("So sánh các chỉ tiêu thu nhập" if lang == 'vi' else "Comparison of Income Statement Metrics"),
+            height=350,
+            legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
+        )
+        st.plotly_chart(fig_income_extra, use_container_width=True, key="finance_income_chart_extra")
+
 
     # ================ TAB 2: BALANCE SHEET ===================
     with tab2:
@@ -454,6 +483,38 @@ def render(feats_df: pd.DataFrame, raw_df: pd.DataFrame, ticker: str, year: int,
             height=350
         )
         st.plotly_chart(figb, use_container_width=True, key="finance_balance_chart")
+
+        # Additional visualisation: composition of key asset categories across years
+        # Prepare series for major asset components
+        cash_trend = [to_num(v) for v in ticker_raw.get('Cash and cash equivalents (Bn. VND)', pd.Series([0]*len(mb_years)))]
+        recv_trend = [to_num(v) for v in ticker_raw.get('Accounts receivable (Bn. VND)', pd.Series([0]*len(mb_years)))]
+        inv_trend = []
+        if 'Net Inventories' in ticker_raw.columns:
+            inv_trend = [to_num(v) for v in ticker_raw['Net Inventories']]
+        elif 'Inventories, Net (Bn. VND)' in ticker_raw.columns:
+            inv_trend = [to_num(v) for v in ticker_raw['Inventories, Net (Bn. VND)']]
+        else:
+            inv_trend = [0]*len(mb_years)
+        fixed_trend = [to_num(v) for v in ticker_raw.get('Fixed assets (Bn. VND)', pd.Series([0]*len(mb_years)))]
+        longinv_trend = [to_num(v) for v in ticker_raw.get('Long-term investments (Bn. VND)', pd.Series([0]*len(mb_years)))]
+        # Define labels based on language
+        lbl_cash = 'Tiền' if lang == 'vi' else 'Cash'
+        lbl_recv = 'Phải Thu' if lang == 'vi' else 'Accounts Receivable'
+        lbl_inv = 'Tồn Kho' if lang == 'vi' else 'Inventories'
+        lbl_fixed = 'TSCĐ' if lang == 'vi' else 'Fixed Assets'
+        lbl_longinv = 'Đầu Tư Dài Hạn' if lang == 'vi' else 'Long-term Investments'
+        figb_extra = go.Figure()
+        figb_extra.add_trace(go.Scatter(name=lbl_cash, x=mb_years, y=cash_trend, mode='lines+markers'))
+        figb_extra.add_trace(go.Scatter(name=lbl_recv, x=mb_years, y=recv_trend, mode='lines+markers'))
+        figb_extra.add_trace(go.Scatter(name=lbl_inv, x=mb_years, y=inv_trend, mode='lines+markers'))
+        figb_extra.add_trace(go.Scatter(name=lbl_fixed, x=mb_years, y=fixed_trend, mode='lines+markers'))
+        figb_extra.add_trace(go.Scatter(name=lbl_longinv, x=mb_years, y=longinv_trend, mode='lines+markers'))
+        figb_extra.update_layout(
+            title=("Cơ cấu tài sản" if lang == 'vi' else "Asset Composition"),
+            height=350,
+            legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
+        )
+        st.plotly_chart(figb_extra, use_container_width=True, key="finance_balance_chart_extra")
 
 
     # ================ TAB 3: CASH FLOW ===================
@@ -537,6 +598,29 @@ def render(feats_df: pd.DataFrame, raw_df: pd.DataFrame, ticker: str, year: int,
         )
         st.plotly_chart(figcf_multi, use_container_width=True, key="finance_cashflow_chart_multi")
 
+        # Additional visualisation: net profit vs operating cash flow across years
+        # Compute net profit trend across years
+        np_trend_full = []
+        if 'Net Profit For the Year' in ticker_raw.columns:
+            np_trend_full = [to_num(v) for v in ticker_raw['Net Profit For the Year']]
+        elif 'Net Profit' in ticker_raw.columns:
+            np_trend_full = [to_num(v) for v in ticker_raw['Net Profit']]
+        else:
+            np_trend_full = [0]*len(cf_years)
+        ocf_trend = ocf_series  # already numeric
+        # Determine labels
+        lbl_np_cf = 'Lợi Nhuận Ròng' if lang == 'vi' else 'Net Profit'
+        lbl_ocf_cf = 'Lưu Chuyển Hoạt Động' if lang == 'vi' else 'Operating CF'
+        figcf_compare = go.Figure()
+        figcf_compare.add_trace(go.Scatter(name=lbl_np_cf, x=cf_years, y=np_trend_full, mode='lines+markers'))
+        figcf_compare.add_trace(go.Scatter(name=lbl_ocf_cf, x=cf_years, y=ocf_trend, mode='lines+markers'))
+        figcf_compare.update_layout(
+            title=("So sánh Lợi Nhuận & LCT Hoạt Động" if lang == 'vi' else "Net Profit vs Operating Cash Flow"),
+            height=350,
+            legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
+        )
+        st.plotly_chart(figcf_compare, use_container_width=True, key="finance_cashflow_chart_extra")
+
 
     # ================ TAB 4: FINANCIAL INDICATORS ===================
     with tab4:
@@ -617,6 +701,25 @@ def render(feats_df: pd.DataFrame, raw_df: pd.DataFrame, ticker: str, year: int,
             legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
         )
         st.plotly_chart(fig_ind, use_container_width=True, key="finance_indicators_chart")
+
+        # Additional visualisation: efficiency ratios (turnover metrics) across years
+        eff_codes = ['Asset_Turnover', 'Inventory_Turnover', 'Receivables_Turnover']
+        fig_eff = go.Figure()
+        for code in eff_codes:
+            y_vals_eff = []
+            for val in multi_ind[code].tolist():
+                if val is None or (isinstance(val, float) and not np.isfinite(val)):
+                    y_vals_eff.append(None)
+                else:
+                    y_vals_eff.append(val)
+            # Use the same indicator name map for display names
+            fig_eff.add_trace(go.Scatter(name=indicator_name_map.get(code, code), x=years_ind, y=y_vals_eff, mode='lines+markers'))
+        fig_eff.update_layout(
+            title=("Xu Hướng Chỉ Số Hiệu Suất" if lang == 'vi' else "Efficiency Ratios Trend"),
+            height=350,
+            legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
+        )
+        st.plotly_chart(fig_eff, use_container_width=True, key="finance_indicators_chart_extra")
 
 
     # ================ TAB 5: NOTES & ASSESSMENT ===================
