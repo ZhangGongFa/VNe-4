@@ -587,6 +587,139 @@ def render(feats_df: pd.DataFrame, raw_df: pd.DataFrame, ticker: str, year: int,
         )
         st.plotly_chart(fig_borrow, use_container_width=True, key="finance_balance_borrow_chart")
 
+        # Additional visualisation: sunburst charts for asset and liabilities/equity composition
+        # Compute asset components for the selected year
+        # Extract values, defaulting to 0 if missing
+        total_assets_year = to_num(row_raw.get('TOTAL ASSETS (Bn. VND)'))
+        current_assets_year = to_num(row_raw.get('CURRENT ASSETS (Bn. VND)'))
+        cash_year = to_num(row_raw.get('Cash and cash equivalents (Bn. VND)'))
+        receivables_year = to_num(row_raw.get('Accounts receivable (Bn. VND)'))
+        inventories_year = to_num(row_raw.get('Net Inventories', row_raw.get('Inventories, Net (Bn. VND)', 0)))
+        other_current_year = to_num(row_raw.get('Other current assets'))
+        fixed_assets_year = to_num(row_raw.get('Fixed assets (Bn. VND)'))
+        long_inv_year = to_num(row_raw.get('Long-term investments (Bn. VND)'))
+        other_noncurrent_year = to_num(row_raw.get('Other non-current assets'))
+        # Compute non-current total
+        noncurrent_total = fixed_assets_year + long_inv_year + other_noncurrent_year
+        # Labels and parents for asset sunburst
+        root_asset = 'Tổng Tài Sản' if lang == 'vi' else 'Total Assets'
+        current_assets_label = 'Tài sản ngắn hạn' if lang == 'vi' else 'Current Assets'
+        noncurrent_assets_label = 'Tài sản dài hạn' if lang == 'vi' else 'Non‑current Assets'
+        labels_asset = [
+            root_asset,
+            current_assets_label,
+            ('Tiền' if lang == 'vi' else 'Cash'),
+            ('Phải thu' if lang == 'vi' else 'Accounts Receivable'),
+            ('Hàng tồn kho' if lang == 'vi' else 'Inventories'),
+            ('TS ngắn hạn khác' if lang == 'vi' else 'Other Current Assets'),
+            noncurrent_assets_label,
+            ('TSCĐ' if lang == 'vi' else 'Fixed Assets'),
+            ('Đầu tư dài hạn' if lang == 'vi' else 'Long‑term Investments'),
+            ('TS dài hạn khác' if lang == 'vi' else 'Other Non‑current Assets')
+        ]
+        parents_asset = [
+            '',
+            root_asset,
+            current_assets_label,
+            current_assets_label,
+            current_assets_label,
+            current_assets_label,
+            root_asset,
+            noncurrent_assets_label,
+            noncurrent_assets_label,
+            noncurrent_assets_label
+        ]
+        values_asset = [
+            total_assets_year,
+            current_assets_year,
+            cash_year,
+            receivables_year,
+            inventories_year,
+            other_current_year,
+            noncurrent_total,
+            fixed_assets_year,
+            long_inv_year,
+            other_noncurrent_year
+        ]
+        fig_sun_asset = go.Figure(go.Sunburst(
+            labels=labels_asset,
+            parents=parents_asset,
+            values=values_asset,
+            branchvalues='total'
+        ))
+        fig_sun_asset.update_layout(
+            title=("Cây phân rã tài sản" if lang == 'vi' else "Asset Breakdown"),
+            height=450,
+            margin=dict(t=40, l=0, r=0, b=0)
+        )
+        st.plotly_chart(fig_sun_asset, use_container_width=True, key="finance_balance_asset_sunburst")
+        # Compute liabilities and equity components for the selected year
+        total_resources_year = to_num(row_raw.get('TOTAL RESOURCES (Bn. VND)', total_assets_year))
+        total_liabilities_year = to_num(row_raw.get('LIABILITIES (Bn. VND)'))
+        total_equity_year = to_num(row_raw.get("OWNER'S EQUITY(Bn.VND)"))
+        current_liabilities_year = to_num(row_raw.get('Current liabilities (Bn. VND)'))
+        long_liabilities_year = to_num(row_raw.get('Long-term liabilities (Bn. VND)'))
+        # Compute other liabilities
+        other_liabilities_year = max(total_liabilities_year - (current_liabilities_year + long_liabilities_year), 0)
+        capital_reserves_year = to_num(row_raw.get('Capital and reserves (Bn. VND)'))
+        undistributed_earnings_year = to_num(row_raw.get('Undistributed earnings (Bn. VND)'))
+        # Compute other equity
+        other_equity_year = max(total_equity_year - (capital_reserves_year + undistributed_earnings_year), 0)
+        root_liab = 'Tổng Nợ & Vốn' if lang == 'vi' else 'Total Liabilities & Equity'
+        liabilities_label = 'Nợ' if lang == 'vi' else 'Liabilities'
+        equity_label = 'Vốn' if lang == 'vi' else 'Equity'
+        current_liab_label = 'Nợ ngắn hạn' if lang == 'vi' else 'Current Liabilities'
+        long_liab_label = 'Nợ dài hạn' if lang == 'vi' else 'Long‑term Liabilities'
+        other_liab_label = 'Nợ khác' if lang == 'vi' else 'Other Liabilities'
+        capital_reserves_label = 'Vốn & Quỹ' if lang == 'vi' else 'Capital & Reserves'
+        undistributed_earnings_label = 'LN chưa phân phối' if lang == 'vi' else 'Undistributed Earnings'
+        other_equity_label = 'Vốn khác' if lang == 'vi' else 'Other Equity'
+        labels_liab = [
+            root_liab,
+            liabilities_label,
+            current_liab_label,
+            long_liab_label,
+            other_liab_label,
+            equity_label,
+            capital_reserves_label,
+            undistributed_earnings_label,
+            other_equity_label
+        ]
+        parents_liab = [
+            '',
+            root_liab,
+            liabilities_label,
+            liabilities_label,
+            liabilities_label,
+            root_liab,
+            equity_label,
+            equity_label,
+            equity_label
+        ]
+        values_liab = [
+            total_resources_year,
+            total_liabilities_year,
+            current_liabilities_year,
+            long_liabilities_year,
+            other_liabilities_year,
+            total_equity_year,
+            capital_reserves_year,
+            undistributed_earnings_year,
+            other_equity_year
+        ]
+        fig_sun_liab = go.Figure(go.Sunburst(
+            labels=labels_liab,
+            parents=parents_liab,
+            values=values_liab,
+            branchvalues='total'
+        ))
+        fig_sun_liab.update_layout(
+            title=("Cây phân rã Nợ & Vốn" if lang == 'vi' else "Liability & Equity Breakdown"),
+            height=450,
+            margin=dict(t=40, l=0, r=0, b=0)
+        )
+        st.plotly_chart(fig_sun_liab, use_container_width=True, key="finance_balance_liab_sunburst")
+
 
     # ================ TAB 3: CASH FLOW ===================
     with tab3:
@@ -804,40 +937,146 @@ def render(feats_df: pd.DataFrame, raw_df: pd.DataFrame, ticker: str, year: int,
         )
         st.plotly_chart(fig_eff, use_container_width=True, key="finance_indicators_chart_extra")
 
-        # Additional visualisation: heatmap of selected financial indicators across years
-        heatmap_codes = [
-            'Current_Ratio','Quick_Ratio','Debt_to_Assets','Debt_to_Equity','ROA','ROE',
-            'Net_Profit_Margin','Gross_Margin','Asset_Turnover','Inventory_Turnover','Receivables_Turnover'
-        ]
-        # Assemble matrix of indicator values; convert to percentage for selected metrics
-        heat_z = []
-        heat_y = []
-        for code in heatmap_codes:
-            # Append display name
-            heat_y.append(indicator_name_map.get(code, code))
-            row_vals = []
-            for val in multi_ind[code].tolist():
-                if val is None or (isinstance(val, float) and not np.isfinite(val)):
-                    row_vals.append(None)
+        # Additional visualisation: bar chart summarising all financial indicators for the current year
+        # Prepare numeric values (percentage where applicable) and colour mapping by evaluation
+        numeric_ind_vals = []
+        bar_colors = []
+        bar_names = []
+        for code, val, eval_str in zip(ind_list, ind_values, ind_eval):
+            # Determine bar name based on language
+            bar_names.append(indicator_name_map.get(code, code))
+            # Convert value to numeric; percentage for selected metrics
+            if val is None or not np.isfinite(val):
+                numeric_ind_vals.append(0)
+            else:
+                if code in ['ROA','ROE','Net_Profit_Margin','Gross_Margin','Working_Capital_to_Total_Assets','Debt_to_Assets','Debt_to_Equity','Equity_to_Liabilities','Long_Term_Debt_to_Assets']:
+                    numeric_ind_vals.append(val * 100)
                 else:
-                    if code in percent_codes:
-                        row_vals.append(val * 100)
-                    else:
-                        row_vals.append(val)
-            heat_z.append(row_vals)
-        fig_heat = go.Figure(data=go.Heatmap(
-            z=heat_z,
-            x=years_ind,
-            y=heat_y,
-            colorscale='Blues',
-            colorbar=dict(title=('Giá trị' if lang == 'vi' else 'Value'))
+                    numeric_ind_vals.append(val)
+            # Determine colour based on evaluation result
+            colour = '#d1d5db'  # default grey for unknown
+            if eval_str:
+                if ('Tốt' in eval_str) or ('Good' in eval_str):
+                    colour = '#22c55e'  # green
+                elif ('Bình' in eval_str) or ('Fair' in eval_str):
+                    colour = '#fbbf24'  # yellow/orange
+                elif ('Kém' in eval_str) or ('Poor' in eval_str):
+                    colour = '#ef4444'  # red
+            bar_colors.append(colour)
+        fig_bar_ind = go.Figure()
+        fig_bar_ind.add_trace(go.Bar(
+            x=numeric_ind_vals,
+            y=bar_names,
+            orientation='h',
+            marker_color=bar_colors
         ))
-        fig_heat.update_layout(
-            title=("Bản đồ nhiệt các chỉ số tài chính" if lang == 'vi' else "Financial Indicators Heatmap"),
-            height=400,
-            xaxis=dict(side='top')
+        fig_bar_ind.update_layout(
+            title=("Tổng quan các chỉ số tài chính" if lang == 'vi' else "Financial Ratios Overview"),
+            height=500,
+            xaxis=dict(title=('Giá trị' if lang == 'vi' else 'Value')),
+            yaxis=dict(automargin=True),
+            showlegend=False
         )
-        st.plotly_chart(fig_heat, use_container_width=True, key="finance_indicators_heatmap")
+        st.plotly_chart(fig_bar_ind, use_container_width=True, key="finance_indicators_overview_chart")
+
+        # ------------------------------------------------------------------
+        # Additional visualisation: radar chart summarising category scores
+        # Compute category scores using evaluation results: Good=1, Fair=0.5, Poor=0
+        # Categories: Liquidity, Leverage, Profitability, Efficiency.  Averages
+        # scores for indicators within each category.  Missing/unknown values
+        # contribute 0.5 (neutral) to avoid biasing results.
+        eval_map_good = ['Tốt', 'Good']
+        eval_map_fair = ['Bình', 'Fair']
+        eval_map_poor = ['Kém', 'Poor']
+        # Build a mapping from indicator code to evaluation result for quick lookup
+        eval_dict = {code: ind_eval[idx] if idx < len(ind_eval) else None for idx, code in enumerate(ind_list)}
+        # Define categories and associated indicator codes
+        categories_codes = {
+            'Liquidity': ['Current_Ratio', 'Quick_Ratio', 'Working_Capital_to_Total_Assets'],
+            'Leverage': ['Debt_to_Assets', 'Debt_to_Equity', 'Equity_to_Liabilities', 'Long_Term_Debt_to_Assets', 'Total_Debt_to_EBITDA'],
+            'Profitability': ['ROA', 'ROE', 'EBIT_to_Assets', 'Operating_Income_to_Debt', 'Net_Profit_Margin', 'Gross_Margin'],
+            'Efficiency': ['Asset_Turnover', 'Inventory_Turnover', 'Receivables_Turnover']
+        }
+        # Names by language for display on radar chart
+        cat_display = {
+            'Liquidity': ('Thanh khoản' if lang == 'vi' else 'Liquidity'),
+            'Leverage': ('Đòn bẩy' if lang == 'vi' else 'Leverage'),
+            'Profitability': ('Sinh lời' if lang == 'vi' else 'Profitability'),
+            'Efficiency': ('Hiệu suất' if lang == 'vi' else 'Efficiency')
+        }
+        # Compute scores per category
+        category_scores = []
+        category_labels = []
+        for cat_key, codes in categories_codes.items():
+            scores = []
+            for code in codes:
+                ev = eval_dict.get(code)
+                if ev is None or (isinstance(ev, str) and ev.strip() == '-'):
+                    # neutral if unknown
+                    scores.append(0.5)
+                else:
+                    # Determine base evaluation without arrows or arrow directions
+                    if any(keyword in ev for keyword in eval_map_good):
+                        scores.append(1.0)
+                    elif any(keyword in ev for keyword in eval_map_fair):
+                        scores.append(0.5)
+                    elif any(keyword in ev for keyword in eval_map_poor):
+                        scores.append(0.0)
+                    else:
+                        scores.append(0.5)
+            # Avoid division by zero
+            avg_score = np.mean(scores) if scores else 0.5
+            category_scores.append(avg_score * 100)  # convert to percentage
+            category_labels.append(cat_display.get(cat_key, cat_key))
+        # Build radar/polar chart
+        fig_radar = go.Figure()
+        # Append first value to close the loop on polar chart
+        fig_radar.add_trace(go.Scatterpolar(
+            r=category_scores + [category_scores[0]] if category_scores else [],
+            theta=category_labels + [category_labels[0]] if category_labels else [],
+            fill='toself',
+            name=("Điểm theo nhóm" if lang == 'vi' else "Category Scores")
+        ))
+        fig_radar.update_layout(
+            title=("Tổng quan theo nhóm chỉ số" if lang == 'vi' else "Category Performance Overview"),
+            polar=dict(
+                radialaxis=dict(range=[0, 100], visible=True, tickvals=[0, 25, 50, 75, 100], ticktext=['0%', '25%', '50%', '75%', '100%']),
+                angularaxis=dict(rotation=90)
+            ),
+            height=400,
+            showlegend=False
+        )
+        st.plotly_chart(fig_radar, use_container_width=True, key="finance_indicators_radar_chart")
+
+        # Additional visualisation: gauge chart for overall financial health
+        # Overall score is the average of category scores
+        overall_score = float(np.mean([s for s in category_scores if s is not None])) if category_scores else 50.0
+        # Define gauge segments to visually encode performance
+        fig_gauge = go.Figure(go.Indicator(
+            mode="gauge+number",
+            value=overall_score,
+            number={'suffix': '%'},
+            title={'text': ("Chỉ số tổng thể" if lang == 'vi' else "Overall Score")},
+            gauge={
+                'axis': {'range': [0, 100]},
+                'bar': {'color': '#3b82f6'},
+                'steps': [
+                    {'range': [0, 33], 'color': '#fca5a5'},
+                    {'range': [33, 66], 'color': '#fde68a'},
+                    {'range': [66, 100], 'color': '#86efac'}
+                ],
+                'threshold': {
+                    'line': {'color': '#ef4444', 'width': 4},
+                    'thickness': 0.75,
+                    'value': overall_score
+                }
+            }
+        ))
+        fig_gauge.update_layout(
+            height=300,
+            margin=dict(t=30, b=10, l=20, r=20)
+        )
+        st.plotly_chart(fig_gauge, use_container_width=True, key="finance_indicators_gauge_chart")
 
 
     # ================ TAB 5: NOTES & ASSESSMENT ===================
