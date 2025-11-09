@@ -659,66 +659,73 @@ def render(feats_df: pd.DataFrame, raw_df: pd.DataFrame, ticker: str, year: int,
         total_equity_year = to_num(row_raw.get("OWNER'S EQUITY(Bn.VND)"))
         current_liabilities_year = to_num(row_raw.get('Current liabilities (Bn. VND)'))
         long_liabilities_year = to_num(row_raw.get('Long-term liabilities (Bn. VND)'))
-        # Compute other liabilities
-        other_liabilities_year = max(total_liabilities_year - (current_liabilities_year + long_liabilities_year), 0)
+        # Compute other liabilities and ensure non-negative values
+        other_liabilities_year = max(total_liabilities_year - (current_liabilities_year + long_liabilities_year), 0.0)
         capital_reserves_year = to_num(row_raw.get('Capital and reserves (Bn. VND)'))
         undistributed_earnings_year = to_num(row_raw.get('Undistributed earnings (Bn. VND)'))
         # Compute other equity
-        other_equity_year = max(total_equity_year - (capital_reserves_year + undistributed_earnings_year), 0)
-        root_liab = 'Tổng Nợ & Vốn' if lang == 'vi' else 'Total Liabilities & Equity'
-        liabilities_label = 'Nợ' if lang == 'vi' else 'Liabilities'
-        equity_label = 'Vốn' if lang == 'vi' else 'Equity'
-        current_liab_label = 'Nợ ngắn hạn' if lang == 'vi' else 'Current Liabilities'
-        long_liab_label = 'Nợ dài hạn' if lang == 'vi' else 'Long‑term Liabilities'
-        other_liab_label = 'Nợ khác' if lang == 'vi' else 'Other Liabilities'
-        capital_reserves_label = 'Vốn & Quỹ' if lang == 'vi' else 'Capital & Reserves'
-        undistributed_earnings_label = 'LN chưa phân phối' if lang == 'vi' else 'Undistributed Earnings'
-        other_equity_label = 'Vốn khác' if lang == 'vi' else 'Other Equity'
-        labels_liab = [
-            root_liab,
-            liabilities_label,
-            current_liab_label,
-            long_liab_label,
-            other_liab_label,
-            equity_label,
-            capital_reserves_label,
-            undistributed_earnings_label,
-            other_equity_label
-        ]
-        parents_liab = [
-            '',
-            root_liab,
-            liabilities_label,
-            liabilities_label,
-            liabilities_label,
-            root_liab,
-            equity_label,
-            equity_label,
-            equity_label
-        ]
-        values_liab = [
-            total_resources_year,
-            total_liabilities_year,
-            current_liabilities_year,
-            long_liabilities_year,
-            other_liabilities_year,
-            total_equity_year,
-            capital_reserves_year,
-            undistributed_earnings_year,
-            other_equity_year
-        ]
-        fig_sun_liab = go.Figure(go.Sunburst(
-            labels=labels_liab,
-            parents=parents_liab,
-            values=values_liab,
-            branchvalues='total'
-        ))
-        fig_sun_liab.update_layout(
-            title=("Cây phân rã Nợ & Vốn" if lang == 'vi' else "Liability & Equity Breakdown"),
-            height=450,
-            margin=dict(t=40, l=0, r=0, b=0)
-        )
-        st.plotly_chart(fig_sun_liab, use_container_width=True, key="finance_balance_liab_sunburst")
+        other_equity_year = max(total_equity_year - (capital_reserves_year + undistributed_earnings_year), 0.0)
+        # Only draw the sunburst if there is meaningful data
+        if total_resources_year > 0:
+            root_liab = 'Tổng Nợ & Vốn' if lang == 'vi' else 'Total Liabilities & Equity'
+            liabilities_label = 'Nợ' if lang == 'vi' else 'Liabilities'
+            equity_label = 'Vốn' if lang == 'vi' else 'Equity'
+            current_liab_label = 'Nợ ngắn hạn' if lang == 'vi' else 'Current Liabilities'
+            long_liab_label = 'Nợ dài hạn' if lang == 'vi' else 'Long‑term Liabilities'
+            other_liab_label = 'Nợ khác' if lang == 'vi' else 'Other Liabilities'
+            capital_reserves_label = 'Vốn & Quỹ' if lang == 'vi' else 'Capital & Reserves'
+            undistributed_earnings_label = 'LN chưa phân phối' if lang == 'vi' else 'Undistributed Earnings'
+            other_equity_label = 'Vốn khác' if lang == 'vi' else 'Other Equity'
+            labels_liab = [
+                root_liab,
+                liabilities_label,
+                current_liab_label,
+                long_liab_label,
+                other_liab_label,
+                equity_label,
+                capital_reserves_label,
+                undistributed_earnings_label,
+                other_equity_label
+            ]
+            parents_liab = [
+                '',
+                root_liab,
+                liabilities_label,
+                liabilities_label,
+                liabilities_label,
+                root_liab,
+                equity_label,
+                equity_label,
+                equity_label
+            ]
+            values_liab = [
+                total_resources_year,
+                total_liabilities_year,
+                current_liabilities_year,
+                long_liabilities_year,
+                other_liabilities_year,
+                total_equity_year,
+                capital_reserves_year,
+                undistributed_earnings_year,
+                other_equity_year
+            ]
+            # Convert any negative or NaN to zero to avoid rendering errors
+            values_liab = [v if (v is not None and np.isfinite(v) and v >= 0) else 0.0 for v in values_liab]
+            fig_sun_liab = go.Figure(go.Sunburst(
+                labels=labels_liab,
+                parents=parents_liab,
+                values=values_liab,
+                branchvalues='total'
+            ))
+            fig_sun_liab.update_layout(
+                title=("Cây phân rã Nợ & Vốn" if lang == 'vi' else "Liability & Equity Breakdown"),
+                height=450,
+                margin=dict(t=40, l=0, r=0, b=0)
+            )
+            st.plotly_chart(fig_sun_liab, use_container_width=True, key="finance_balance_liab_sunburst")
+        else:
+            # Inform the user if there is not enough data to build the breakdown
+            st.info("Không có dữ liệu để hiển thị cây phân rã nợ & vốn" if lang == 'vi' else "Insufficient data for liability & equity breakdown")
 
 
     # ================ TAB 3: CASH FLOW ===================
@@ -1044,7 +1051,8 @@ def render(feats_df: pd.DataFrame, raw_df: pd.DataFrame, ticker: str, year: int,
                 angularaxis=dict(rotation=90)
             ),
             height=400,
-            showlegend=False
+            showlegend=False,
+            font=dict(family="Arial", size=14)
         )
         st.plotly_chart(fig_radar, use_container_width=True, key="finance_indicators_radar_chart")
 
@@ -1056,7 +1064,7 @@ def render(feats_df: pd.DataFrame, raw_df: pd.DataFrame, ticker: str, year: int,
             mode="gauge+number",
             value=overall_score,
             number={'suffix': '%'},
-            title={'text': ("Chỉ số tổng thể" if lang == 'vi' else "Overall Score")},
+            title={'text': ("Điểm tổng thể" if lang == 'vi' else "Overall Score")},
             gauge={
                 'axis': {'range': [0, 100]},
                 'bar': {'color': '#3b82f6'},
@@ -1074,7 +1082,8 @@ def render(feats_df: pd.DataFrame, raw_df: pd.DataFrame, ticker: str, year: int,
         ))
         fig_gauge.update_layout(
             height=300,
-            margin=dict(t=30, b=10, l=20, r=20)
+            margin=dict(t=30, b=10, l=20, r=20),
+            font=dict(family="Arial", size=14)
         )
         st.plotly_chart(fig_gauge, use_container_width=True, key="finance_indicators_gauge_chart")
 
