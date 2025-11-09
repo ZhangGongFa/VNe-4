@@ -406,6 +406,39 @@ def render(feats_df: pd.DataFrame, raw_df: pd.DataFrame, ticker: str, year: int,
         )
         st.plotly_chart(fig_income_extra, use_container_width=True, key="finance_income_chart_extra")
 
+        # Additional visualisation: profit margins over time (Gross, Operating, Net)
+        gross_margin_trend = []
+        operating_margin_trend = []
+        net_margin_trend = []
+        for _, r in ticker_raw.iterrows():
+            rev_val = to_num(r.get('Net Sales', r.get('Revenue', r.get('Revenue (Bn. VND)', np.nan))))
+            gp_val = to_num(r.get('Gross Profit'))
+            op_val = to_num(r.get('Operating Profit/Loss'))
+            np_val = to_num(r.get('Net Profit For the Year', r.get('Net Profit', np.nan)))
+            if rev_val and rev_val != 0:
+                gross_margin_trend.append((gp_val / rev_val) * 100 if rev_val else None)
+                operating_margin_trend.append((op_val / rev_val) * 100 if rev_val else None)
+                net_margin_trend.append((np_val / rev_val) * 100 if rev_val else None)
+            else:
+                gross_margin_trend.append(None)
+                operating_margin_trend.append(None)
+                net_margin_trend.append(None)
+        # Define labels for margins
+        lbl_gm = 'Biên LN gộp' if lang == 'vi' else 'Gross Margin'
+        lbl_om = 'Biên LN HĐ' if lang == 'vi' else 'Operating Margin'
+        lbl_nm = 'Biên LN ròng' if lang == 'vi' else 'Net Margin'
+        fig_margin = go.Figure()
+        fig_margin.add_trace(go.Scatter(name=lbl_gm, x=trend_years, y=gross_margin_trend, mode='lines+markers'))
+        fig_margin.add_trace(go.Scatter(name=lbl_om, x=trend_years, y=operating_margin_trend, mode='lines+markers'))
+        fig_margin.add_trace(go.Scatter(name=lbl_nm, x=trend_years, y=net_margin_trend, mode='lines+markers'))
+        fig_margin.update_layout(
+            title=("Xu Hướng Biên Lợi Nhuận" if lang == 'vi' else "Profit Margin Trends"),
+            height=350,
+            yaxis=dict(title=('Phần trăm (%)' if lang == 'vi' else 'Percentage (%)')),
+            legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
+        )
+        st.plotly_chart(fig_margin, use_container_width=True, key="finance_income_margin_chart")
+
 
     # ================ TAB 2: BALANCE SHEET ===================
     with tab2:
@@ -516,6 +549,44 @@ def render(feats_df: pd.DataFrame, raw_df: pd.DataFrame, ticker: str, year: int,
         )
         st.plotly_chart(figb_extra, use_container_width=True, key="finance_balance_chart_extra")
 
+        # Additional visualisation: capital structure and borrowings trends
+        # Compute debt ratio and equity ratio as a percentage of total assets
+        debt_ratio = []
+        equity_ratio = []
+        for a, l, e in zip(assets_series, liabilities_series, equity_series):
+            if a is not None and a != 0:
+                debt_ratio.append((l / a) * 100)
+                equity_ratio.append((e / a) * 100)
+            else:
+                debt_ratio.append(None)
+                equity_ratio.append(None)
+        debt_ratio_label = 'Tỷ lệ Nợ/Tài sản' if lang == 'vi' else 'Debt/Assets Ratio'
+        equity_ratio_label = 'Tỷ lệ Vốn Chủ/Tài sản' if lang == 'vi' else 'Equity/Assets Ratio'
+        fig_ratio = go.Figure()
+        fig_ratio.add_trace(go.Scatter(name=debt_ratio_label, x=mb_years, y=debt_ratio, mode='lines+markers'))
+        fig_ratio.add_trace(go.Scatter(name=equity_ratio_label, x=mb_years, y=equity_ratio, mode='lines+markers'))
+        fig_ratio.update_layout(
+            title=("Xu Hướng Tỷ Lệ Nguồn Vốn" if lang == 'vi' else "Capital Structure Ratios Trend"),
+            height=350,
+            yaxis=dict(title=('Phần trăm (%)' if lang == 'vi' else 'Percentage (%)')),
+            legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
+        )
+        st.plotly_chart(fig_ratio, use_container_width=True, key="finance_balance_ratio_chart")
+        # Borrowing trends (Short-term vs Long-term)
+        st_borrow_trend = [to_num(v) for v in ticker_raw.get('Short-term borrowings (Bn. VND)', pd.Series([0]*len(mb_years)))]
+        lt_borrow_trend = [to_num(v) for v in ticker_raw.get('Long-term borrowings (Bn. VND)', pd.Series([0]*len(mb_years)))]
+        lbl_short_borrow = 'Vay Ngắn Hạn' if lang == 'vi' else 'Short-term Borrowings'
+        lbl_long_borrow = 'Vay Dài Hạn' if lang == 'vi' else 'Long-term Borrowings'
+        fig_borrow = go.Figure()
+        fig_borrow.add_trace(go.Scatter(name=lbl_short_borrow, x=mb_years, y=st_borrow_trend, mode='lines+markers'))
+        fig_borrow.add_trace(go.Scatter(name=lbl_long_borrow, x=mb_years, y=lt_borrow_trend, mode='lines+markers'))
+        fig_borrow.update_layout(
+            title=("Xu Hướng Vay Nợ" if lang == 'vi' else "Borrowing Trends"),
+            height=350,
+            legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
+        )
+        st.plotly_chart(fig_borrow, use_container_width=True, key="finance_balance_borrow_chart")
+
 
     # ================ TAB 3: CASH FLOW ===================
     with tab3:
@@ -608,14 +679,26 @@ def render(feats_df: pd.DataFrame, raw_df: pd.DataFrame, ticker: str, year: int,
         else:
             np_trend_full = [0]*len(cf_years)
         ocf_trend = ocf_series  # already numeric
+        # Compute free cash flow (FCF) as OCF minus capital expenditures
+        capex_series_full = ticker_raw.get('Purchase of fixed assets', pd.Series([0]*len(cf_years)))
+        capex_trend = [to_num(v) for v in capex_series_full]
+        fcf_trend = []
+        for ocf_val, capex_val in zip(ocf_trend, capex_trend):
+            if ocf_val is None or not np.isfinite(ocf_val):
+                fcf_trend.append(None)
+            else:
+                # Subtract capex (assumed positive) to obtain free cash flow
+                fcf_trend.append(ocf_val - capex_val)
         # Determine labels
         lbl_np_cf = 'Lợi Nhuận Ròng' if lang == 'vi' else 'Net Profit'
         lbl_ocf_cf = 'Lưu Chuyển Hoạt Động' if lang == 'vi' else 'Operating CF'
+        lbl_fcf_cf = 'Dòng Tiền Tự Do' if lang == 'vi' else 'Free Cash Flow'
         figcf_compare = go.Figure()
         figcf_compare.add_trace(go.Scatter(name=lbl_np_cf, x=cf_years, y=np_trend_full, mode='lines+markers'))
         figcf_compare.add_trace(go.Scatter(name=lbl_ocf_cf, x=cf_years, y=ocf_trend, mode='lines+markers'))
+        figcf_compare.add_trace(go.Scatter(name=lbl_fcf_cf, x=cf_years, y=fcf_trend, mode='lines+markers'))
         figcf_compare.update_layout(
-            title=("So sánh Lợi Nhuận & LCT Hoạt Động" if lang == 'vi' else "Net Profit vs Operating Cash Flow"),
+            title=("So sánh LN, LCT HĐ & FCF" if lang == 'vi' else "Net Profit, Operating CF & Free Cash Flow"),
             height=350,
             legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
         )
@@ -720,6 +803,41 @@ def render(feats_df: pd.DataFrame, raw_df: pd.DataFrame, ticker: str, year: int,
             legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
         )
         st.plotly_chart(fig_eff, use_container_width=True, key="finance_indicators_chart_extra")
+
+        # Additional visualisation: heatmap of selected financial indicators across years
+        heatmap_codes = [
+            'Current_Ratio','Quick_Ratio','Debt_to_Assets','Debt_to_Equity','ROA','ROE',
+            'Net_Profit_Margin','Gross_Margin','Asset_Turnover','Inventory_Turnover','Receivables_Turnover'
+        ]
+        # Assemble matrix of indicator values; convert to percentage for selected metrics
+        heat_z = []
+        heat_y = []
+        for code in heatmap_codes:
+            # Append display name
+            heat_y.append(indicator_name_map.get(code, code))
+            row_vals = []
+            for val in multi_ind[code].tolist():
+                if val is None or (isinstance(val, float) and not np.isfinite(val)):
+                    row_vals.append(None)
+                else:
+                    if code in percent_codes:
+                        row_vals.append(val * 100)
+                    else:
+                        row_vals.append(val)
+            heat_z.append(row_vals)
+        fig_heat = go.Figure(data=go.Heatmap(
+            z=heat_z,
+            x=years_ind,
+            y=heat_y,
+            colorscale='Blues',
+            colorbar=dict(title=('Giá trị' if lang == 'vi' else 'Value'))
+        ))
+        fig_heat.update_layout(
+            title=("Bản đồ nhiệt các chỉ số tài chính" if lang == 'vi' else "Financial Indicators Heatmap"),
+            height=400,
+            xaxis=dict(side='top')
+        )
+        st.plotly_chart(fig_heat, use_container_width=True, key="finance_indicators_heatmap")
 
 
     # ================ TAB 5: NOTES & ASSESSMENT ===================
