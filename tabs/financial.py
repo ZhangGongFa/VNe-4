@@ -8,25 +8,13 @@ import pandas as pd
 import streamlit as st
 import plotly.graph_objects as go
 from utils_new.lang import get_text
-# We no longer rely on an external example spreadsheet for detailed statement
-# layouts.  All detailed tables are constructed directly from the provided
-# `bctc_final.csv` and `financial_indicators.csv` data.  The mappings of
-# descriptive line items to underlying column names are defined inside the
-# `render` function below.  Visualizations accompany each table to help
-# users interpret multi‑year trends.
 
 def render(feats_df: pd.DataFrame, raw_df: pd.DataFrame, ticker: str, year: int,
            model, thresholds, sector: str, final_features: list):
     """
     Render the Finance tab with actual data from bctc_final.csv.
-
-    This implementation replaces sample/static numbers with real financial data for
-    the selected ticker and year. It also computes and displays 19 key financial
-    ratios and includes multi‑year trend tables/charts to let users see how
-    metrics evolve over time.
     """
     lang = st.session_state.get('current_lang', 'vi')
-
     st.subheader(get_text("finance_header", lang))
 
     # Retrieve the row for the selected ticker/year from features and raw data
@@ -40,7 +28,7 @@ def render(feats_df: pd.DataFrame, raw_df: pd.DataFrame, ticker: str, year: int,
     row_feat = row_feat.iloc[0]
     row_raw = row_raw.iloc[0]
 
-    # Helper to safely convert values to floats
+    # ---------- helpers ----------
     def to_num(x):
         try:
             if pd.isna(x):
@@ -51,16 +39,13 @@ def render(feats_df: pd.DataFrame, raw_df: pd.DataFrame, ticker: str, year: int,
         except Exception:
             return 0.0
 
-    # Helper to format values nicely
     def fmt_val(x):
         return "-" if (x is None or not np.isfinite(x)) else f"{x:,.2f}"
 
-    # Helper to compute ratio evaluation
     def evaluate_ratio(name: str, value: float):
         if value is None or not np.isfinite(value):
             return "-"
-        # Define basic thresholds for good/fair/poor
-        thresholds = {
+        thr = {
             'Current_Ratio': (1.5, 1.0),
             'Quick_Ratio': (1.0, 0.5),
             'Working_Capital_to_Total_Assets': (0.2, 0.1),
@@ -81,9 +66,8 @@ def render(feats_df: pd.DataFrame, raw_df: pd.DataFrame, ticker: str, year: int,
             'EBITDA_to_Interest': (3.0, 1.0),
             'Total_Debt_to_EBITDA': (3.0, 5.0)
         }
-        good, fair = thresholds.get(name, (None, None))
-        # For ratios where lower is better (like Total_Debt_to_EBITDA) invert logic
-        if name == 'Total_Debt_to_EBITDA':
+        good, fair = thr.get(name, (None, None))
+        if name == 'Total_Debt_to_EBITDA':  # lower better
             if value < good:
                 return "Tốt ↑" if lang == 'vi' else "Good ↑"
             elif value < fair:
@@ -98,19 +82,12 @@ def render(feats_df: pd.DataFrame, raw_df: pd.DataFrame, ticker: str, year: int,
             else:
                 return "Kém ↓" if lang == 'vi' else "Poor ↓"
 
-    # Construct multi‑year slices for trends
-    ticker_raw = raw_df[raw_df["Ticker"].astype(str) == str(ticker)].copy()
-    ticker_raw = ticker_raw.sort_values("Year")
+    # Construct multi-year slices for trends
+    ticker_raw = raw_df[raw_df["Ticker"].astype(str) == str(ticker)].copy().sort_values("Year")
     ticker_feat = feats_df[feats_df["Ticker"].astype(str) == str(ticker)].copy().sort_values("Year")
 
-    # -------------------------------------------------------------------------
-    # Helper functions to construct full statement tables from the raw data.
-    # These use mappings of human‑readable line items to column names in
-    # `bctc_final.csv`.  For each selected ticker, they pivot values across
-    # available years to match the multi‑year layout seen in the example file.
-
+    # ---------- builders for full tables ----------
     def build_full_income_table():
-        """Construct a detailed income statement across years for the selected ticker."""
         income_mapping = [
             {'en': 'Net Revenue', 'vi': 'Doanh Thu Thuần', 'columns': ['Net Sales', 'Revenue']},
             {'en': 'Cost of Goods Sold', 'vi': 'Giá Vốn Hàng Bán', 'columns': ['Cost of Sales']},
@@ -122,15 +99,13 @@ def render(feats_df: pd.DataFrame, raw_df: pd.DataFrame, ticker: str, year: int,
             {'en': 'Administrative Expenses', 'vi': 'Chi Phí Quản Lý', 'columns': ['General & Admin Expenses']},
             {'en': 'Operating Profit', 'vi': 'Lợi Nhuận Hoạt Động', 'columns': ['Operating Profit/Loss']},
             {'en': 'Profit Before Tax', 'vi': 'Lợi Nhuận Trước Thuế', 'columns': ['Profit before tax', 'Net Profit/Loss before tax']},
-            # Tax expense is sum of current and deferred business income taxes
             {'en': 'Tax Expense', 'vi': 'Chi Phí Thuế', 'calc': lambda r: to_num(r.get('Business income tax - current')) + to_num(r.get('Business income tax - deferred'))},
             {'en': 'Net Profit After Tax', 'vi': 'Lợi Nhuận Ròng', 'columns': ['Net Profit For the Year', 'Net Profit']},
         ]
         years = ticker_raw['Year'].tolist()
         rows = []
         for item in income_mapping:
-            row_data = {}
-            row_data['Chỉ tiêu' if lang == 'vi' else 'Item'] = item['vi'] if lang == 'vi' else item['en']
+            row_data = {'Chỉ tiêu' if lang == 'vi' else 'Item': item['vi'] if lang == 'vi' else item['en']}
             for yr in years:
                 sub = ticker_raw[ticker_raw['Year'] == yr]
                 val = None
@@ -143,19 +118,13 @@ def render(feats_df: pd.DataFrame, raw_df: pd.DataFrame, ticker: str, year: int,
                             val = None
                     else:
                         for col in item['columns']:
-                            if col in r.index:
-                                v = r[col]
-                                if pd.notna(v):
-                                    val = v
-                                    break
-                # Convert value to numeric for consistency
-                val_num = to_num(val) if val is not None else None
-                row_data[str(yr)] = val_num
+                            if col in r.index and pd.notna(r[col]):
+                                val = r[col]; break
+                row_data[str(yr)] = to_num(val) if val is not None else None
             rows.append(row_data)
         return pd.DataFrame(rows)
 
     def build_full_balance_table():
-        """Construct a detailed balance sheet across years for the selected ticker."""
         balance_mapping = [
             {'en': 'Cash and Cash Equivalents', 'vi': 'Tiền & Tương Đương Tiền', 'columns': ['Cash and cash equivalents (Bn. VND)']},
             {'en': 'Short-term Investments', 'vi': 'Đầu Tư Ngắn Hạn', 'columns': ['Short-term investments (Bn. VND)']},
@@ -180,26 +149,20 @@ def render(feats_df: pd.DataFrame, raw_df: pd.DataFrame, ticker: str, year: int,
         years = ticker_raw['Year'].tolist()
         rows = []
         for item in balance_mapping:
-            row_data = {}
-            row_data['Chỉ tiêu' if lang == 'vi' else 'Item'] = item['vi'] if lang == 'vi' else item['en']
+            row_data = {'Chỉ tiêu' if lang == 'vi' else 'Item': item['vi'] if lang == 'vi' else item['en']}
             for yr in years:
                 sub = ticker_raw[ticker_raw['Year'] == yr]
                 val = None
                 if not sub.empty:
                     r = sub.iloc[0]
                     for col in item['columns']:
-                        if col in r.index:
-                            v = r[col]
-                            if pd.notna(v):
-                                val = v
-                                break
-                val_num = to_num(val) if val is not None else None
-                row_data[str(yr)] = val_num
+                        if col in r.index and pd.notna(r[col]):
+                            val = r[col]; break
+                row_data[str(yr)] = to_num(val) if val is not None else None
             rows.append(row_data)
         return pd.DataFrame(rows)
 
     def build_full_cashflow_table():
-        """Construct a detailed cash flow statement across years for the selected ticker."""
         cashflow_mapping = [
             {'en': 'Net Profit', 'vi': 'Lợi Nhuận Ròng', 'columns': ['Net Profit For the Year', 'Net Profit']},
             {'en': 'Depreciation & Amortisation', 'vi': 'Khấu Hao & Khấu Hao', 'columns': ['Depreciation and Amortisation']},
@@ -226,29 +189,20 @@ def render(feats_df: pd.DataFrame, raw_df: pd.DataFrame, ticker: str, year: int,
         years = ticker_raw['Year'].tolist()
         rows = []
         for item in cashflow_mapping:
-            row_data = {}
-            row_data['Chỉ tiêu' if lang == 'vi' else 'Item'] = item['vi'] if lang == 'vi' else item['en']
+            row_data = {'Chỉ tiêu' if lang == 'vi' else 'Item': item['vi'] if lang == 'vi' else item['en']}
             for yr in years:
                 sub = ticker_raw[ticker_raw['Year'] == yr]
                 val = None
                 if not sub.empty:
                     r = sub.iloc[0]
                     for col in item['columns']:
-                        if col in r.index:
-                            v = r[col]
-                            if pd.notna(v):
-                                val = v
-                                break
-                val_num = to_num(val) if val is not None else None
-                row_data[str(yr)] = val_num
+                        if col in r.index and pd.notna(r[col]):
+                            val = r[col]; break
+                row_data[str(yr)] = to_num(val) if val is not None else None
             rows.append(row_data)
         return pd.DataFrame(rows)
 
     def build_full_indicator_table():
-        """Construct a detailed financial indicators table across years for the selected ticker."""
-        # Define indicators and their display names.  These mirror the 19 key
-        # ratios used elsewhere in the application.  If you wish to change
-        # which ratios are shown in this detailed table, modify this list.
         ind_list_local = [
             'Current_Ratio','Quick_Ratio','Working_Capital_to_Total_Assets','Debt_to_Assets','Debt_to_Equity',
             'Equity_to_Liabilities','Long_Term_Debt_to_Assets','Receivables_Turnover','Inventory_Turnover','Asset_Turnover',
@@ -264,23 +218,19 @@ def render(feats_df: pd.DataFrame, raw_df: pd.DataFrame, ticker: str, year: int,
             'Equity/Liabilities', 'Long-term Debt/Assets', 'Receivables Turnover', 'Inventory Turnover', 'Asset Turnover',
             'ROA', 'ROE', 'EBIT/Assets', 'Operating Income/Debt', 'Net Profit Margin', 'Gross Margin', 'Interest Coverage', 'EBITDA/Interest', 'Total Debt/EBITDA'
         ]
-        indicator_map = {code: (vi_name if lang == 'vi' else en_name) for code, vi_name, en_name in zip(ind_list_local, ind_names_vi_local, ind_names_en_local)}
+        indicator_map = {code: (vi if lang == 'vi' else en) for code, vi, en in zip(ind_list_local, ind_names_vi_local, ind_names_en_local)}
         years = ticker_feat['Year'].tolist()
         rows = []
         for code in ind_list_local:
-            row_data = {}
-            row_data['Chỉ số' if lang == 'vi' else 'Indicator'] = indicator_map.get(code, code)
+            row_data = {'Chỉ số' if lang == 'vi' else 'Indicator': indicator_map.get(code, code)}
             for yr in years:
                 sub = ticker_feat[ticker_feat['Year'] == yr]
                 val = None
                 if not sub.empty:
-                    r = sub.iloc[0]
-                    val = r.get(code, None)
-                # Format as percentage for certain ratios
+                    r = sub.iloc[0]; val = r.get(code, None)
                 if val is None or not np.isfinite(val):
                     val_fmt = None
                 else:
-                    # Show as percentage if between -1 and 1 for selected ratios
                     if code in ['ROA','ROE','Net_Profit_Margin','Gross_Margin','Working_Capital_to_Total_Assets','Debt_to_Assets','Debt_to_Equity','Equity_to_Liabilities','Long_Term_Debt_to_Assets']:
                         val_fmt = val * 100
                     else:
@@ -289,7 +239,7 @@ def render(feats_df: pd.DataFrame, raw_df: pd.DataFrame, ticker: str, year: int,
             rows.append(row_data)
         return pd.DataFrame(rows)
 
-    # ================ TAB 1: INCOME STATEMENT ===================
+    # =================== TABS ===================
     tab1, tab2, tab3, tab4, tab5 = st.tabs([
         get_text("finance_tab_income", lang),
         get_text("finance_tab_balance", lang),
@@ -298,21 +248,11 @@ def render(feats_df: pd.DataFrame, raw_df: pd.DataFrame, ticker: str, year: int,
         get_text("finance_tab_notes", lang)
     ])
 
+    # ----------------- TAB 1: INCOME -----------------
     with tab1:
-        """
-        INCOME STATEMENT TAB
-
-        This tab displays a concise income statement for the selected year,
-        followed by a multi‑year summary and a detailed income statement
-        pivoted across all available years for the company.  A grouped bar
-        chart summarises revenue and net profit trends after the detailed
-        table, aligning with the requirement to visualise data beneath
-        the detailed data section.
-        """
         st.markdown(f"### {get_text('income_statement_title', lang)}")
         st.markdown(f"**{get_text('income_year', lang)}:** {year} | **{get_text('income_company', lang)}:** {ticker} | **{get_text('income_sector', lang)}:** {sector}")
 
-        # Extract income statement values for the current year
         revenue = to_num(row_raw.get('Net Sales', row_raw.get('Revenue', row_raw.get('Revenue (Bn. VND)', np.nan))))
         cogs = to_num(row_raw.get('Cost of Sales'))
         gross_profit = to_num(row_raw.get('Gross Profit'))
@@ -323,72 +263,46 @@ def render(feats_df: pd.DataFrame, raw_df: pd.DataFrame, ticker: str, year: int,
         profit_before_tax = to_num(row_raw.get('Profit before tax', row_raw.get('Net Profit/Loss before tax')))
         tax_expense = to_num(row_raw.get('Business income tax - current')) + to_num(row_raw.get('Business income tax - deferred'))
         net_profit = to_num(row_raw.get('Net Profit For the Year'))
-        # Build current year summary table
-        income_items_vi = [
-            'Doanh Thu Thuần', 'Giá Vốn Hàng Bán', 'Lợi Nhuận Gộp',
-            'Chi Phí Bán Hàng', 'Chi Phí Quản Lý', 'Lợi Nhuận Hoạt Động',
-            'Chi Phí Lãi Vay', 'Lợi Nhuận Trước Thuế', 'Chi Phí Thuế', 'Lợi Nhuận Ròng'
-        ]
-        income_items_en = [
-            'Net Revenue', 'Cost of Goods Sold', 'Gross Profit',
-            'Selling Expenses', 'Administrative Expenses', 'Operating Profit',
-            'Interest Expenses', 'Profit Before Tax', 'Tax Expense', 'Net Profit'
-        ]
-        values = [revenue, cogs, gross_profit, selling_exp, admin_exp,
-                  operating_profit, interest_exp, profit_before_tax, tax_expense, net_profit]
-        percentages = []
-        for v in values:
-            pct = (v / revenue) if revenue != 0 else 0.0
-            percentages.append(f"{pct*100:.1f}%")
-        header_key = get_text("stress_table_scenario", lang) if lang == 'en' else "Chỉ Tiêu"
+
+        income_items_vi = ['Doanh Thu Thuần', 'Giá Vốn Hàng Bán', 'Lợi Nhuận Gộp', 'Chi Phí Bán Hàng', 'Chi Phí Quản Lý', 'Lợi Nhuận Hoạt Động', 'Chi Phí Lãi Vay', 'Lợi Nhuận Trước Thuế', 'Chi Phí Thuế', 'Lợi Nhuận Ròng']
+        income_items_en = ['Net Revenue', 'Cost of Goods Sold', 'Gross Profit', 'Selling Expenses', 'Administrative Expenses', 'Operating Profit', 'Interest Expenses', 'Profit Before Tax', 'Tax Expense', 'Net Profit']
+        values = [revenue, cogs, gross_profit, selling_exp, admin_exp, operating_profit, interest_exp, profit_before_tax, tax_expense, net_profit]
+        percentages = [f"{(v / revenue)*100:.1f}%" if revenue != 0 else "0.0%" for v in values]
+        header_key = "Item" if lang == 'en' else "Chỉ Tiêu"
         income_df = pd.DataFrame({
             header_key: income_items_en if lang == 'en' else income_items_vi,
             ("Value (Bn VND)" if lang == 'en' else "Giá Trị (Tỷ VND)"): [fmt_val(v) for v in values],
             ("% of Revenue" if lang == 'en' else "% Doanh Thu"): percentages
         })
         st.dataframe(income_df, use_container_width=True, hide_index=True, key="finance_income_table")
-        # Multi‑year summary for revenue and net profit
+
         trend_years = ticker_raw['Year'].astype(str).tolist()
         trend_rev = [to_num(v) for v in ticker_raw.get('Net Sales', ticker_raw.get('Revenue', ticker_raw.get('Revenue (Bn. VND)', np.nan)))]
         trend_np = [to_num(v) for v in ticker_raw.get('Net Profit For the Year', ticker_raw.get('Net Profit', np.nan))]
-        multi_income = pd.DataFrame({
-            'Year': ticker_raw['Year'],
-            ("Net Revenue" if lang == 'en' else "Doanh Thu"): trend_rev,
-            ("Net Profit" if lang == 'en' else "Lợi Nhuận Ròng"): trend_np
-        })
-        st.markdown("**" + ("Dữ liệu nhiều năm" if lang=='vi' else "Multi‑year Data") + "**")
+        multi_income = pd.DataFrame({'Year': ticker_raw['Year'], ("Net Revenue" if lang == 'en' else "Doanh Thu"): trend_rev, ("Net Profit" if lang == 'en' else "Lợi Nhuận Ròng"): trend_np})
+        st.markdown("**" + ("Dữ liệu nhiều năm" if lang=='vi' else "Multi-year Data") + "**")
         st.dataframe(multi_income, use_container_width=True, hide_index=True, key="income_multiyear_table")
-        # Detailed multi‑year income statement (pivot)
+
         full_income_table = build_full_income_table()
         st.markdown("**" + ("Báo cáo kết quả kinh doanh chi tiết" if lang == 'vi' else "Detailed Income Statement") + "**")
         display_income = full_income_table.copy()
-        for col in display_income.columns[1:]:  # format numeric columns
+        for col in display_income.columns[1:]:
             display_income[col] = display_income[col].apply(lambda x: fmt_val(x) if x is not None else '-')
         st.dataframe(display_income, use_container_width=True, hide_index=True, key="income_full_table")
-        # Visualise revenue and net profit trend below the detailed data
-        fig = go.Figure(data=[
-            go.Bar(name=get_text('metric_revenue', lang), x=trend_years, y=trend_rev),
-            go.Bar(name=get_text('metric_net_profit', lang), x=trend_years, y=trend_np)
-        ])
-        fig.update_layout(
-            title=("Xu Hướng Doanh Thu & Lợi Nhuận" if lang == 'vi' else "Revenue & Net Profit Trend"),
-            barmode='group',
-            height=350
-        )
+
+        fig = go.Figure(data=[go.Bar(name=get_text('metric_revenue', lang), x=trend_years, y=trend_rev),
+                              go.Bar(name=get_text('metric_net_profit', lang), x=trend_years, y=trend_np)])
+        fig.update_layout(title=("Xu Hướng Doanh Thu & Lợi Nhuận" if lang == 'vi' else "Revenue & Net Profit Trend"), barmode='group', height=350)
         st.plotly_chart(fig, use_container_width=True, key="finance_income_chart")
 
-        # Additional visualisation: compare key income statement metrics across years
-        # Prepare series for cost of goods sold, gross profit, operating profit and net profit
-        # Some columns may not exist; provide zero fallback
+        # Extra comparisons
         cogs_series = ticker_raw['Cost of Sales'] if 'Cost of Sales' in ticker_raw.columns else pd.Series([0]*len(trend_years), index=ticker_raw.index)
         gross_series = ticker_raw['Gross Profit'] if 'Gross Profit' in ticker_raw.columns else pd.Series([0]*len(trend_years), index=ticker_raw.index)
         op_series = ticker_raw['Operating Profit/Loss'] if 'Operating Profit/Loss' in ticker_raw.columns else pd.Series([0]*len(trend_years), index=ticker_raw.index)
         cogs_trend = [to_num(v) for v in cogs_series]
         gross_trend = [to_num(v) for v in gross_series]
         op_trend = [to_num(v) for v in op_series]
-        # Build multi‑line chart
         fig_income_extra = go.Figure()
-        # Determine labels based on language
         lbl_rev = 'Doanh Thu' if lang == 'vi' else 'Revenue'
         lbl_cogs = 'Giá Vốn Hàng Bán' if lang == 'vi' else 'Cost of Goods Sold'
         lbl_gross = 'Lợi Nhuận Gộp' if lang == 'vi' else 'Gross Profit'
@@ -399,31 +313,20 @@ def render(feats_df: pd.DataFrame, raw_df: pd.DataFrame, ticker: str, year: int,
         fig_income_extra.add_trace(go.Scatter(name=lbl_gross, x=trend_years, y=gross_trend, mode='lines+markers'))
         fig_income_extra.add_trace(go.Scatter(name=lbl_op, x=trend_years, y=op_trend, mode='lines+markers'))
         fig_income_extra.add_trace(go.Scatter(name=lbl_np, x=trend_years, y=trend_np, mode='lines+markers'))
-        fig_income_extra.update_layout(
-            title=("So sánh các chỉ tiêu thu nhập" if lang == 'vi' else "Comparison of Income Statement Metrics"),
-            height=350,
-            legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
-        )
+        fig_income_extra.update_layout(title=("So sánh các chỉ tiêu thu nhập" if lang == 'vi' else "Comparison of Income Statement Metrics"), height=350, legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1))
         st.plotly_chart(fig_income_extra, use_container_width=True, key="finance_income_chart_extra")
 
-        # Additional visualisation: profit margins over time (Gross, Operating, Net)
-        gross_margin_trend = []
-        operating_margin_trend = []
-        net_margin_trend = []
+        gross_margin_trend, operating_margin_trend, net_margin_trend = [], [], []
         for _, r in ticker_raw.iterrows():
             rev_val = to_num(r.get('Net Sales', r.get('Revenue', r.get('Revenue (Bn. VND)', np.nan))))
-            gp_val = to_num(r.get('Gross Profit'))
-            op_val = to_num(r.get('Operating Profit/Loss'))
+            gp_val = to_num(r.get('Gross Profit')); op_val = to_num(r.get('Operating Profit/Loss'))
             np_val = to_num(r.get('Net Profit For the Year', r.get('Net Profit', np.nan)))
-            if rev_val and rev_val != 0:
-                gross_margin_trend.append((gp_val / rev_val) * 100 if rev_val else None)
-                operating_margin_trend.append((op_val / rev_val) * 100 if rev_val else None)
-                net_margin_trend.append((np_val / rev_val) * 100 if rev_val else None)
+            if rev_val != 0:
+                gross_margin_trend.append((gp_val / rev_val) * 100)
+                operating_margin_trend.append((op_val / rev_val) * 100)
+                net_margin_trend.append((np_val / rev_val) * 100)
             else:
-                gross_margin_trend.append(None)
-                operating_margin_trend.append(None)
-                net_margin_trend.append(None)
-        # Define labels for margins
+                gross_margin_trend.append(None); operating_margin_trend.append(None); net_margin_trend.append(None)
         lbl_gm = 'Biên LN gộp' if lang == 'vi' else 'Gross Margin'
         lbl_om = 'Biên LN HĐ' if lang == 'vi' else 'Operating Margin'
         lbl_nm = 'Biên LN ròng' if lang == 'vi' else 'Net Margin'
@@ -431,19 +334,13 @@ def render(feats_df: pd.DataFrame, raw_df: pd.DataFrame, ticker: str, year: int,
         fig_margin.add_trace(go.Scatter(name=lbl_gm, x=trend_years, y=gross_margin_trend, mode='lines+markers'))
         fig_margin.add_trace(go.Scatter(name=lbl_om, x=trend_years, y=operating_margin_trend, mode='lines+markers'))
         fig_margin.add_trace(go.Scatter(name=lbl_nm, x=trend_years, y=net_margin_trend, mode='lines+markers'))
-        fig_margin.update_layout(
-            title=("Xu Hướng Biên Lợi Nhuận" if lang == 'vi' else "Profit Margin Trends"),
-            height=350,
-            yaxis=dict(title=('Phần trăm (%)' if lang == 'vi' else 'Percentage (%)')),
-            legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
-        )
+        fig_margin.update_layout(title=("Xu Hướng Biên Lợi Nhuận" if lang == 'vi' else "Profit Margin Trends"), height=350, yaxis=dict(title=('Phần trăm (%)' if lang == 'vi' else 'Percentage (%)')), legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1))
         st.plotly_chart(fig_margin, use_container_width=True, key="finance_income_margin_chart")
 
-
-    # ================ TAB 2: BALANCE SHEET ===================
+    # ----------------- TAB 2: BALANCE SHEET -----------------
     with tab2:
         st.markdown(f"### {get_text('balance_sheet_title', lang)}")
-        # Assets
+
         assets_items_vi = ['Tiền Mặt', 'Phải Thu', 'Hàng Tồn Kho', 'Tài Sản Lưu Động', 'Tài Sản Cố Định', 'Đầu Tư Dài Hạn', 'Tổng Tài Sản']
         assets_items_en = ['Cash', 'Accounts Receivable', 'Inventory', 'Current Assets', 'Fixed Assets', 'Long-term Investments', 'Total Assets']
         cash = to_num(row_raw.get('Cash and cash equivalents (Bn. VND)'))
@@ -454,11 +351,8 @@ def render(feats_df: pd.DataFrame, raw_df: pd.DataFrame, ticker: str, year: int,
         long_inv = to_num(row_raw.get('Long-term investments (Bn. VND)'))
         total_assets = to_num(row_raw.get('TOTAL ASSETS (Bn. VND)'))
         assets_values = [cash, receivables, inventory, current_assets, fixed_assets, long_inv, total_assets]
-        assets_df = pd.DataFrame({
-            ('Item' if lang == 'en' else 'Chỉ Tiêu'): assets_items_en if lang == 'en' else assets_items_vi,
-            ('Value (Bn VND)' if lang == 'en' else 'Giá Trị (Tỷ VND)'): [fmt_val(v) for v in assets_values]
-        })
-        # Liabilities and Equity
+        assets_df = pd.DataFrame({('Item' if lang == 'en' else 'Chỉ Tiêu'): assets_items_en if lang == 'en' else assets_items_vi, ('Value (Bn VND)' if lang == 'en' else 'Giá Trị (Tỷ VND)'): [fmt_val(v) for v in assets_values]})
+
         liab_items_vi = ['Vay Ngắn Hạn', 'Vay Dài Hạn', 'Nợ Ngắn Hạn', 'Nợ Dài Hạn', 'Tổng Nợ', 'Vốn Chủ Sở Hữu', 'Tổng Nợ & Vốn']
         liab_items_en = ['Short-term Borrowings', 'Long-term Borrowings', 'Current Liabilities', 'Long-term Liabilities', 'Total Liabilities', 'Equity', 'Total Liab. & Equity']
         short_borrow = to_num(row_raw.get('Short-term borrowings (Bn. VND)'))
@@ -469,10 +363,8 @@ def render(feats_df: pd.DataFrame, raw_df: pd.DataFrame, ticker: str, year: int,
         equity = to_num(row_raw.get("OWNER'S EQUITY(Bn.VND)"))
         total_resources = to_num(row_raw.get('TOTAL RESOURCES (Bn. VND)', total_assets))
         liab_values = [short_borrow, long_borrow, current_liab, long_liab, total_liab, equity, total_resources]
-        liab_df = pd.DataFrame({
-            ('Item' if lang == 'en' else 'Chỉ Tiêu'): liab_items_en if lang == 'en' else liab_items_vi,
-            ('Value (Bn VND)' if lang == 'en' else 'Giá Trị (Tỷ VND)'): [fmt_val(v) for v in liab_values]
-        })
+        liab_df = pd.DataFrame({('Item' if lang == 'en' else 'Chỉ Tiêu'): liab_items_en if lang == 'en' else liab_items_vi, ('Value (Bn VND)' if lang == 'en' else 'Giá Trị (Tỷ VND)'): [fmt_val(v) for v in liab_values]})
+
         col1, col2 = st.columns(2)
         with col1:
             st.markdown("**" + ("Assets" if lang == 'en' else "Tài Sản") + "**")
@@ -480,48 +372,39 @@ def render(feats_df: pd.DataFrame, raw_df: pd.DataFrame, ticker: str, year: int,
         with col2:
             st.markdown("**" + ("Liabilities & Equity" if lang == 'en' else "Nợ & Vốn Chủ") + "**")
             st.dataframe(liab_df, use_container_width=True, hide_index=True, key="finance_liab_table")
-        # Multi‑year summary for balance sheet
+
         multi_balance = pd.DataFrame({
             'Year': ticker_raw['Year'],
             ('Total Assets' if lang == 'en' else 'Tổng Tài Sản'): [to_num(v) for v in ticker_raw.get('TOTAL ASSETS (Bn. VND)', np.nan)],
             ('Total Liabilities' if lang == 'en' else 'Tổng Nợ'): [to_num(v) for v in ticker_raw.get('LIABILITIES (Bn. VND)', np.nan)],
             ('Equity' if lang == 'en' else 'Vốn Chủ'): [to_num(v) for v in ticker_raw.get("OWNER'S EQUITY(Bn.VND)", np.nan)]
         })
-        st.markdown("**" + ("Dữ liệu nhiều năm" if lang=='vi' else "Multi‑year Data") + "**")
+        st.markdown("**" + ("Dữ liệu nhiều năm" if lang=='vi' else "Multi-year Data") + "**")
         st.dataframe(multi_balance, use_container_width=True, hide_index=True, key="balance_multiyear_table")
-        # Detailed multi‑year balance sheet
+
         full_balance_table = build_full_balance_table()
         st.markdown("**" + ("Bảng cân đối kế toán chi tiết" if lang == 'vi' else "Detailed Balance Sheet") + "**")
         display_balance = full_balance_table.copy()
         for col in display_balance.columns[1:]:
             display_balance[col] = display_balance[col].apply(lambda x: fmt_val(x) if x is not None else '-')
         st.dataframe(display_balance, use_container_width=True, hide_index=True, key="balance_full_table")
-        # Visualise total assets, liabilities and equity trends below the detailed table
+
         mb_years = multi_balance['Year'].astype(str).tolist()
-        # Extract series depending on language
         assets_col = 'Tổng Tài Sản' if lang == 'vi' else 'Total Assets'
         liabilities_col = 'Tổng Nợ' if lang == 'vi' else 'Total Liabilities'
         equity_col = 'Vốn Chủ' if lang == 'vi' else 'Equity'
         assets_series = multi_balance[assets_col].tolist()
         liabilities_series = multi_balance[liabilities_col].tolist()
         equity_series = multi_balance[equity_col].tolist()
-        figb = go.Figure(data=[
-            go.Bar(name=assets_col, x=mb_years, y=assets_series),
-            go.Bar(name=liabilities_col, x=mb_years, y=liabilities_series),
-            go.Bar(name=equity_col, x=mb_years, y=equity_series)
-        ])
-        figb.update_layout(
-            title=("Xu Hướng Tài Sản, Nợ & Vốn" if lang == 'vi' else "Assets, Liabilities & Equity Trend"),
-            barmode='group',
-            height=350
-        )
+        figb = go.Figure(data=[go.Bar(name=assets_col, x=mb_years, y=assets_series),
+                               go.Bar(name=liabilities_col, x=mb_years, y=liabilities_series),
+                               go.Bar(name=equity_col, x=mb_years, y=equity_series)])
+        figb.update_layout(title=("Xu Hướng Tài Sản, Nợ & Vốn" if lang == 'vi' else "Assets, Liabilities & Equity Trend"), barmode='group', height=350)
         st.plotly_chart(figb, use_container_width=True, key="finance_balance_chart")
 
-        # Additional visualisation: composition of key asset categories across years
-        # Prepare series for major asset components
+        # Asset composition
         cash_trend = [to_num(v) for v in ticker_raw.get('Cash and cash equivalents (Bn. VND)', pd.Series([0]*len(mb_years)))]
         recv_trend = [to_num(v) for v in ticker_raw.get('Accounts receivable (Bn. VND)', pd.Series([0]*len(mb_years)))]
-        inv_trend = []
         if 'Net Inventories' in ticker_raw.columns:
             inv_trend = [to_num(v) for v in ticker_raw['Net Inventories']]
         elif 'Inventories, Net (Bn. VND)' in ticker_raw.columns:
@@ -530,7 +413,6 @@ def render(feats_df: pd.DataFrame, raw_df: pd.DataFrame, ticker: str, year: int,
             inv_trend = [0]*len(mb_years)
         fixed_trend = [to_num(v) for v in ticker_raw.get('Fixed assets (Bn. VND)', pd.Series([0]*len(mb_years)))]
         longinv_trend = [to_num(v) for v in ticker_raw.get('Long-term investments (Bn. VND)', pd.Series([0]*len(mb_years)))]
-        # Define labels based on language
         lbl_cash = 'Tiền' if lang == 'vi' else 'Cash'
         lbl_recv = 'Phải Thu' if lang == 'vi' else 'Accounts Receivable'
         lbl_inv = 'Tồn Kho' if lang == 'vi' else 'Inventories'
@@ -542,54 +424,28 @@ def render(feats_df: pd.DataFrame, raw_df: pd.DataFrame, ticker: str, year: int,
         figb_extra.add_trace(go.Scatter(name=lbl_inv, x=mb_years, y=inv_trend, mode='lines+markers'))
         figb_extra.add_trace(go.Scatter(name=lbl_fixed, x=mb_years, y=fixed_trend, mode='lines+markers'))
         figb_extra.add_trace(go.Scatter(name=lbl_longinv, x=mb_years, y=longinv_trend, mode='lines+markers'))
-        figb_extra.update_layout(
-            title=("Cơ cấu tài sản" if lang == 'vi' else "Asset Composition"),
-            height=350,
-            legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
-        )
+        figb_extra.update_layout(title=("Cơ cấu tài sản" if lang == 'vi' else "Asset Composition"), height=350, legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1))
         st.plotly_chart(figb_extra, use_container_width=True, key="finance_balance_chart_extra")
 
-        # Additional visualisation: capital structure and borrowings trends
-        # Compute debt ratio and equity ratio as a percentage of total assets
-        debt_ratio = []
-        equity_ratio = []
-        for a, l, e in zip(assets_series, liabilities_series, equity_series):
-            if a is not None and a != 0:
-                debt_ratio.append((l / a) * 100)
-                equity_ratio.append((e / a) * 100)
-            else:
-                debt_ratio.append(None)
-                equity_ratio.append(None)
-        debt_ratio_label = 'Tỷ lệ Nợ/Tài sản' if lang == 'vi' else 'Debt/Assets Ratio'
-        equity_ratio_label = 'Tỷ lệ Vốn Chủ/Tài sản' if lang == 'vi' else 'Equity/Assets Ratio'
+        # Capital structure ratios
+        debt_ratio = [(l/a)*100 if a else None for a, l in zip(assets_series, liabilities_series)]
+        equity_ratio = [(e/a)*100 if a else None for a, e in zip(assets_series, equity_series)]
         fig_ratio = go.Figure()
-        fig_ratio.add_trace(go.Scatter(name=debt_ratio_label, x=mb_years, y=debt_ratio, mode='lines+markers'))
-        fig_ratio.add_trace(go.Scatter(name=equity_ratio_label, x=mb_years, y=equity_ratio, mode='lines+markers'))
-        fig_ratio.update_layout(
-            title=("Xu Hướng Tỷ Lệ Nguồn Vốn" if lang == 'vi' else "Capital Structure Ratios Trend"),
-            height=350,
-            yaxis=dict(title=('Phần trăm (%)' if lang == 'vi' else 'Percentage (%)')),
-            legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
-        )
+        fig_ratio.add_trace(go.Scatter(name=('Tỷ lệ Nợ/Tài sản' if lang=='vi' else 'Debt/Assets Ratio'), x=mb_years, y=debt_ratio, mode='lines+markers'))
+        fig_ratio.add_trace(go.Scatter(name=('Tỷ lệ Vốn Chủ/Tài sản' if lang=='vi' else 'Equity/Assets Ratio'), x=mb_years, y=equity_ratio, mode='lines+markers'))
+        fig_ratio.update_layout(title=("Xu Hướng Tỷ Lệ Nguồn Vốn" if lang == 'vi' else "Capital Structure Ratios Trend"), height=350, yaxis=dict(title=('Phần trăm (%)' if lang == 'vi' else 'Percentage (%)')), legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1))
         st.plotly_chart(fig_ratio, use_container_width=True, key="finance_balance_ratio_chart")
-        # Borrowing trends (Short-term vs Long-term)
+
+        # Borrowing trends
         st_borrow_trend = [to_num(v) for v in ticker_raw.get('Short-term borrowings (Bn. VND)', pd.Series([0]*len(mb_years)))]
         lt_borrow_trend = [to_num(v) for v in ticker_raw.get('Long-term borrowings (Bn. VND)', pd.Series([0]*len(mb_years)))]
-        lbl_short_borrow = 'Vay Ngắn Hạn' if lang == 'vi' else 'Short-term Borrowings'
-        lbl_long_borrow = 'Vay Dài Hạn' if lang == 'vi' else 'Long-term Borrowings'
         fig_borrow = go.Figure()
-        fig_borrow.add_trace(go.Scatter(name=lbl_short_borrow, x=mb_years, y=st_borrow_trend, mode='lines+markers'))
-        fig_borrow.add_trace(go.Scatter(name=lbl_long_borrow, x=mb_years, y=lt_borrow_trend, mode='lines+markers'))
-        fig_borrow.update_layout(
-            title=("Xu Hướng Vay Nợ" if lang == 'vi' else "Borrowing Trends"),
-            height=350,
-            legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
-        )
+        fig_borrow.add_trace(go.Scatter(name=('Vay Ngắn Hạn' if lang=='vi' else 'Short-term Borrowings'), x=mb_years, y=st_borrow_trend, mode='lines+markers'))
+        fig_borrow.add_trace(go.Scatter(name=('Vay Dài Hạn' if lang=='vi' else 'Long-term Borrowings'), x=mb_years, y=lt_borrow_trend, mode='lines+markers'))
+        fig_borrow.update_layout(title=("Xu Hướng Vay Nợ" if lang == 'vi' else "Borrowing Trends"), height=350, legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1))
         st.plotly_chart(fig_borrow, use_container_width=True, key="finance_balance_borrow_chart")
 
-        # Additional visualisation: sunburst charts for asset and liabilities/equity composition
-        # Compute asset components for the selected year
-        # Extract values, defaulting to 0 if missing
+        # -------- Sunburst: Assets --------
         total_assets_year = to_num(row_raw.get('TOTAL ASSETS (Bn. VND)'))
         current_assets_year = to_num(row_raw.get('CURRENT ASSETS (Bn. VND)'))
         cash_year = to_num(row_raw.get('Cash and cash equivalents (Bn. VND)'))
@@ -599,176 +455,76 @@ def render(feats_df: pd.DataFrame, raw_df: pd.DataFrame, ticker: str, year: int,
         fixed_assets_year = to_num(row_raw.get('Fixed assets (Bn. VND)'))
         long_inv_year = to_num(row_raw.get('Long-term investments (Bn. VND)'))
         other_noncurrent_year = to_num(row_raw.get('Other non-current assets'))
-        # Compute non-current total
         noncurrent_total = fixed_assets_year + long_inv_year + other_noncurrent_year
-        # Labels and parents for asset sunburst
+
         root_asset = 'Tổng Tài Sản' if lang == 'vi' else 'Total Assets'
         current_assets_label = 'Tài sản ngắn hạn' if lang == 'vi' else 'Current Assets'
-        noncurrent_assets_label = 'Tài sản dài hạn' if lang == 'vi' else 'Non‑current Assets'
-        labels_asset = [
-            root_asset,
-            current_assets_label,
-            ('Tiền' if lang == 'vi' else 'Cash'),
-            ('Phải thu' if lang == 'vi' else 'Accounts Receivable'),
-            ('Hàng tồn kho' if lang == 'vi' else 'Inventories'),
-            ('TS ngắn hạn khác' if lang == 'vi' else 'Other Current Assets'),
-            noncurrent_assets_label,
-            ('TSCĐ' if lang == 'vi' else 'Fixed Assets'),
-            ('Đầu tư dài hạn' if lang == 'vi' else 'Long‑term Investments'),
-            ('TS dài hạn khác' if lang == 'vi' else 'Other Non‑current Assets')
-        ]
-        parents_asset = [
-            '',
-            root_asset,
-            current_assets_label,
-            current_assets_label,
-            current_assets_label,
-            current_assets_label,
-            root_asset,
-            noncurrent_assets_label,
-            noncurrent_assets_label,
-            noncurrent_assets_label
-        ]
-        values_asset = [
-            total_assets_year,
-            current_assets_year,
-            cash_year,
-            receivables_year,
-            inventories_year,
-            other_current_year,
-            noncurrent_total,
-            fixed_assets_year,
-            long_inv_year,
-            other_noncurrent_year
-        ]
-        fig_sun_asset = go.Figure(go.Sunburst(
-            labels=labels_asset,
-            parents=parents_asset,
-            values=values_asset,
-            branchvalues='total'
-        ))
-        fig_sun_asset.update_layout(
-            title=("Cây phân rã tài sản" if lang == 'vi' else "Asset Breakdown"),
-            height=450,
-            margin=dict(t=40, l=0, r=0, b=0)
-        )
+        noncurrent_assets_label = 'Tài sản dài hạn' if lang == 'vi' else 'Non-current Assets'
+        labels_asset = [root_asset, current_assets_label, ('Tiền' if lang == 'vi' else 'Cash'), ('Phải thu' if lang == 'vi' else 'Accounts Receivable'),
+                        ('Hàng tồn kho' if lang == 'vi' else 'Inventories'), ('TS ngắn hạn khác' if lang == 'vi' else 'Other Current Assets'),
+                        noncurrent_assets_label, ('TSCĐ' if lang == 'vi' else 'Fixed Assets'), ('Đầu tư dài hạn' if lang == 'vi' else 'Long-term Investments'),
+                        ('TS dài hạn khác' if lang == 'vi' else 'Other Non-current Assets')]
+        parents_asset = ['', root_asset, current_assets_label, current_assets_label, current_assets_label, current_assets_label, root_asset, noncurrent_assets_label, noncurrent_assets_label, noncurrent_assets_label]
+        values_asset = [max(total_assets_year,0.0), max(current_assets_year,0.0), max(cash_year,0.0), max(receivables_year,0.0), max(inventories_year,0.0), max(other_current_year,0.0),
+                        max(noncurrent_total,0.0), max(fixed_assets_year,0.0), max(long_inv_year,0.0), max(other_noncurrent_year,0.0)]
+        fig_sun_asset = go.Figure(go.Sunburst(labels=labels_asset, parents=parents_asset, values=values_asset, branchvalues='total'))
+        fig_sun_asset.update_layout(title=("Cây phân rã tài sản" if lang == 'vi' else "Asset Breakdown"), height=450, margin=dict(t=40, l=0, r=0, b=0))
         st.plotly_chart(fig_sun_asset, use_container_width=True, key="finance_balance_asset_sunburst")
-        # Compute liabilities and equity components for the selected year
-        total_resources_year = to_num(row_raw.get('TOTAL RESOURCES (Bn. VND)', total_assets_year))
+
+        # -------- Sunburst: Liabilities & Equity --------
         total_liabilities_year = to_num(row_raw.get('LIABILITIES (Bn. VND)'))
         total_equity_year = to_num(row_raw.get("OWNER'S EQUITY(Bn.VND)"))
+        total_resources_year = to_num(row_raw.get('TOTAL RESOURCES (Bn. VND)'))
+        if total_resources_year <= 0:
+            total_resources_year = total_liabilities_year + total_equity_year
         current_liabilities_year = to_num(row_raw.get('Current liabilities (Bn. VND)'))
         long_liabilities_year = to_num(row_raw.get('Long-term liabilities (Bn. VND)'))
-        # Compute other liabilities and ensure non-negative values
         other_liabilities_year = max(total_liabilities_year - (current_liabilities_year + long_liabilities_year), 0.0)
         capital_reserves_year = to_num(row_raw.get('Capital and reserves (Bn. VND)'))
         undistributed_earnings_year = to_num(row_raw.get('Undistributed earnings (Bn. VND)'))
-        # Compute other equity
         other_equity_year = max(total_equity_year - (capital_reserves_year + undistributed_earnings_year), 0.0)
-        # Only draw the sunburst if there is meaningful data
+
         if total_resources_year > 0:
             root_liab = 'Tổng Nợ & Vốn' if lang == 'vi' else 'Total Liabilities & Equity'
             liabilities_label = 'Nợ' if lang == 'vi' else 'Liabilities'
             equity_label = 'Vốn' if lang == 'vi' else 'Equity'
-            current_liab_label = 'Nợ ngắn hạn' if lang == 'vi' else 'Current Liabilities'
-            long_liab_label = 'Nợ dài hạn' if lang == 'vi' else 'Long‑term Liabilities'
-            other_liab_label = 'Nợ khác' if lang == 'vi' else 'Other Liabilities'
-            capital_reserves_label = 'Vốn & Quỹ' if lang == 'vi' else 'Capital & Reserves'
-            undistributed_earnings_label = 'LN chưa phân phối' if lang == 'vi' else 'Undistributed Earnings'
-            other_equity_label = 'Vốn khác' if lang == 'vi' else 'Other Equity'
-            labels_liab = [
-                root_liab,
-                liabilities_label,
-                current_liab_label,
-                long_liab_label,
-                other_liab_label,
-                equity_label,
-                capital_reserves_label,
-                undistributed_earnings_label,
-                other_equity_label
-            ]
-            parents_liab = [
-                '',
-                root_liab,
-                liabilities_label,
-                liabilities_label,
-                liabilities_label,
-                root_liab,
-                equity_label,
-                equity_label,
-                equity_label
-            ]
-            values_liab = [
-                total_resources_year,
-                total_liabilities_year,
-                current_liabilities_year,
-                long_liabilities_year,
-                other_liabilities_year,
-                total_equity_year,
-                capital_reserves_year,
-                undistributed_earnings_year,
-                other_equity_year
-            ]
-            # Convert any negative or NaN to zero to avoid rendering errors
-            values_liab = [v if (v is not None and np.isfinite(v) and v >= 0) else 0.0 for v in values_liab]
-            fig_sun_liab = go.Figure(go.Sunburst(
-                labels=labels_liab,
-                parents=parents_liab,
-                values=values_liab,
-                branchvalues='total'
-            ))
-            fig_sun_liab.update_layout(
-                title=("Cây phân rã Nợ & Vốn" if lang == 'vi' else "Liability & Equity Breakdown"),
-                height=450,
-                margin=dict(t=40, l=0, r=0, b=0)
-            )
+            labels_liab = [root_liab, liabilities_label, ('Nợ ngắn hạn' if lang == 'vi' else 'Current Liabilities'), ('Nợ dài hạn' if lang == 'vi' else 'Long-term Liabilities'),
+                           ('Nợ khác' if lang == 'vi' else 'Other Liabilities'), equity_label, ('Vốn & Quỹ' if lang == 'vi' else 'Capital & Reserves'),
+                           ('LN chưa phân phối' if lang == 'vi' else 'Undistributed Earnings'), ('Vốn khác' if lang == 'vi' else 'Other Equity')]
+            parents_liab = ['', root_liab, liabilities_label, liabilities_label, liabilities_label, root_liab, equity_label, equity_label, equity_label]
+            values_liab = [max(total_resources_year,0.0), max(total_liabilities_year,0.0), max(current_liabilities_year,0.0), max(long_liabilities_year,0.0),
+                           max(other_liabilities_year,0.0), max(total_equity_year,0.0), max(capital_reserves_year,0.0), max(undistributed_earnings_year,0.0), max(other_equity_year,0.0)]
+            fig_sun_liab = go.Figure(go.Sunburst(labels=labels_liab, parents=parents_liab, values=values_liab, branchvalues='total'))
+            fig_sun_liab.update_layout(title=("Cây phân rã Nợ & Vốn" if lang == 'vi' else "Liability & Equity Breakdown"), height=450, margin=dict(t=40, l=0, r=0, b=0))
             st.plotly_chart(fig_sun_liab, use_container_width=True, key="finance_balance_liab_sunburst")
         else:
-            # Inform the user if there is not enough data to build the breakdown
             st.info("Không có dữ liệu để hiển thị cây phân rã nợ & vốn" if lang == 'vi' else "Insufficient data for liability & equity breakdown")
 
-
-    # ================ TAB 3: CASH FLOW ===================
+    # ----------------- TAB 3: CASH FLOW -----------------
     with tab3:
         st.markdown(f"### {get_text('cashflow_statement_title', lang)}")
-        # Compute cash flow items
         cf_items_vi = ['Lợi Nhuận Ròng', 'Khấu Hao & Khấu Hao', 'Thay Đổi Vốn Lưu Động', 'Lưu Chuyển từ Hoạt Động', 'Chi Đầu Tư Cố Định', 'Lưu Chuyển từ Đầu Tư', 'Phát Hành Cổ Phiếu', 'Trả Nợ Vay', 'Lưu Chuyển từ Tài Chính', 'Thay Đổi Tiền Mặt']
         cf_items_en = ['Net Profit', 'Depreciation & Amortization', 'Change in Working Capital', 'Operating Cash Flow', 'Capital Expenditures', 'Investing Cash Flow', 'Equity Issuance', 'Debt Repayment', 'Financing Cash Flow', 'Net Change in Cash']
-        net_profit_cf = net_profit  # reuse from income statement
+        net_profit_cf = to_num(row_raw.get('Net Profit For the Year', row_raw.get('Net Profit', np.nan)))
         depreciation = to_num(row_raw.get('Depreciation and Amortisation'))
-        # Change in working capital: sum of receivables/inventories/payables/prepaid changes if available
-        wc_change = (to_num(row_raw.get('Increase/Decrease in receivables')) +
-                     to_num(row_raw.get('Increase/Decrease in inventories')) +
-                     to_num(row_raw.get('Increase/Decrease in payables')) +
-                     to_num(row_raw.get('Increase/Decrease in prepaid expenses')))
+        wc_change = (to_num(row_raw.get('Increase/Decrease in receivables')) + to_num(row_raw.get('Increase/Decrease in inventories')) +
+                     to_num(row_raw.get('Increase/Decrease in payables')) + to_num(row_raw.get('Increase/Decrease in prepaid expenses')))
         ocf = to_num(row_raw.get('Net cash inflows/outflows from operating activities'))
         capex = to_num(row_raw.get('Purchase of fixed assets'))
         investing_cf = to_num(row_raw.get('Net Cash Flows from Investing Activities'))
-        equity_issue = to_num(row_raw.get('Increase in charter captial'))
+        equity_issue = to_num(row_raw.get('Increase in charter capital', row_raw.get('Increase in charter captial')))
         debt_repay = to_num(row_raw.get('Repayment of borrowings'))
         financing_cf = to_num(row_raw.get('Cash flows from financial activities'))
         net_change_cash = to_num(row_raw.get('Net increase/decrease in cash and cash equivalents'))
         cf_values = [net_profit_cf, depreciation, wc_change, ocf, capex, investing_cf, equity_issue, debt_repay, financing_cf, net_change_cash]
-        cf_df = pd.DataFrame({
-            ('Item' if lang == 'en' else 'Chỉ Tiêu'): cf_items_en if lang == 'en' else cf_items_vi,
-            ('Value (Bn VND)' if lang == 'en' else 'Giá Trị (Tỷ VND)'): [fmt_val(v) for v in cf_values]
-        })
+        cf_df = pd.DataFrame({('Item' if lang == 'en' else 'Chỉ Tiêu'): cf_items_en if lang == 'en' else cf_items_vi, ('Value (Bn VND)' if lang == 'en' else 'Giá Trị (Tỷ VND)'): [fmt_val(v) for v in cf_values]})
         st.dataframe(cf_df, use_container_width=True, hide_index=True, key="finance_cashflow_table")
-        # Waterfall chart
-        figcf = go.Figure(go.Waterfall(
-            x=["Operating", "Investing", "Financing", "Net Change"],
-            y=[ocf, investing_cf, financing_cf, net_change_cash],
-            connector={"line": {"color": "rgba(63, 63, 63, 0.5)"}},
-            decreasing={"marker": {"color": "#E24A33"}},
-            increasing={"marker": {"color": "#1F77B4"}},
-            totals={"marker": {"color": "#22C55E"}}
-        ))
-        figcf.update_layout(
-            title=("Lưu Chuyển Tiền Tệ" if lang == 'vi' else 'Cash Flow Waterfall'),
-            height=350
-        )
+
+        figcf = go.Figure(go.Waterfall(x=["Operating","Investing","Financing","Net Change"], y=[ocf,investing_cf,financing_cf,net_change_cash],
+                                       connector={"line": {"color": "rgba(63,63,63,0.5)"}}, decreasing={"marker": {"color": "#E24A33"}}, increasing={"marker": {"color": "#1F77B4"}}, totals={"marker": {"color": "#22C55E"}}))
+        figcf.update_layout(title=("Lưu Chuyển Tiền Tệ" if lang == 'vi' else 'Cash Flow Waterfall'), height=350)
         st.plotly_chart(figcf, use_container_width=True, key="finance_cashflow_chart")
-        # Multi‑year cash flow summary
+
         multi_cf = pd.DataFrame({
             'Year': ticker_raw['Year'],
             ('Operating CF' if lang == 'en' else 'Lưu Chuyển Hoạt Động'): [to_num(v) for v in ticker_raw.get('Net cash inflows/outflows from operating activities', np.nan)],
@@ -776,135 +532,78 @@ def render(feats_df: pd.DataFrame, raw_df: pd.DataFrame, ticker: str, year: int,
             ('Financing CF' if lang == 'en' else 'Lưu Chuyển Tài Chính'): [to_num(v) for v in ticker_raw.get('Cash flows from financial activities', np.nan)],
             ('Net Change Cash' if lang == 'en' else 'Thay Đổi Tiền Mặt'): [to_num(v) for v in ticker_raw.get('Net increase/decrease in cash and cash equivalents', np.nan)]
         })
-        st.markdown("**" + ("Dữ liệu nhiều năm" if lang=='vi' else "Multi‑year Data") + "**")
+        st.markdown("**" + ("Dữ liệu nhiều năm" if lang=='vi' else "Multi-year Data") + "**")
         st.dataframe(multi_cf, use_container_width=True, hide_index=True, key="cashflow_multiyear_table")
-        # Detailed multi‑year cash flow statement
+
         full_cf_table = build_full_cashflow_table()
         st.markdown("**" + ("Báo cáo lưu chuyển tiền tệ chi tiết" if lang == 'vi' else "Detailed Cash Flow Statement") + "**")
         display_cf = full_cf_table.copy()
         for col in display_cf.columns[1:]:
             display_cf[col] = display_cf[col].apply(lambda x: fmt_val(x) if x is not None else '-')
         st.dataframe(display_cf, use_container_width=True, hide_index=True, key="cashflow_full_table")
-        # Visualise operating, investing, financing and net change cash flows across years
+
         cf_years = multi_cf['Year'].astype(str).tolist()
-        # Determine columns based on language
         ocf_col = 'Lưu Chuyển Hoạt Động' if lang == 'vi' else 'Operating CF'
         icf_col = 'Lưu Chuyển Đầu Tư' if lang == 'vi' else 'Investing CF'
         fcf_col = 'Lưu Chuyển Tài Chính' if lang == 'vi' else 'Financing CF'
         net_col = 'Thay Đổi Tiền Mặt' if lang == 'vi' else 'Net Change Cash'
-        ocf_series = multi_cf[ocf_col].tolist()
-        icf_series = multi_cf[icf_col].tolist()
-        fcf_series = multi_cf[fcf_col].tolist()
-        net_series = multi_cf[net_col].tolist()
-        figcf_multi = go.Figure(data=[
-            go.Bar(name=ocf_col, x=cf_years, y=ocf_series),
-            go.Bar(name=icf_col, x=cf_years, y=icf_series),
-            go.Bar(name=fcf_col, x=cf_years, y=fcf_series),
-            go.Bar(name=net_col, x=cf_years, y=net_series)
-        ])
-        figcf_multi.update_layout(
-            title=("Xu Hướng Lưu Chuyển Tiền" if lang == 'vi' else "Cash Flow Components Trend"),
-            barmode='group',
-            height=350
-        )
+        ocf_series = multi_cf[ocf_col].tolist(); icf_series = multi_cf[icf_col].tolist(); fcf_series = multi_cf[fcf_col].tolist(); net_series = multi_cf[net_col].tolist()
+        figcf_multi = go.Figure(data=[go.Bar(name=ocf_col, x=cf_years, y=ocf_series), go.Bar(name=icf_col, x=cf_years, y=icf_series), go.Bar(name=fcf_col, x=cf_years, y=fcf_series), go.Bar(name=net_col, x=cf_years, y=net_series)])
+        figcf_multi.update_layout(title=("Xu Hướng Lưu Chuyển Tiền" if lang == 'vi' else "Cash Flow Components Trend"), barmode='group', height=350)
         st.plotly_chart(figcf_multi, use_container_width=True, key="finance_cashflow_chart_multi")
 
-        # Additional visualisation: net profit vs operating cash flow across years
-        # Compute net profit trend across years
-        np_trend_full = []
+        # Net profit vs Operating CF vs FCF
         if 'Net Profit For the Year' in ticker_raw.columns:
             np_trend_full = [to_num(v) for v in ticker_raw['Net Profit For the Year']]
         elif 'Net Profit' in ticker_raw.columns:
             np_trend_full = [to_num(v) for v in ticker_raw['Net Profit']]
         else:
             np_trend_full = [0]*len(cf_years)
-        ocf_trend = ocf_series  # already numeric
-        # Compute free cash flow (FCF) as OCF minus capital expenditures
         capex_series_full = ticker_raw.get('Purchase of fixed assets', pd.Series([0]*len(cf_years)))
         capex_trend = [to_num(v) for v in capex_series_full]
-        fcf_trend = []
-        for ocf_val, capex_val in zip(ocf_trend, capex_trend):
-            if ocf_val is None or not np.isfinite(ocf_val):
-                fcf_trend.append(None)
-            else:
-                # Subtract capex (assumed positive) to obtain free cash flow
-                fcf_trend.append(ocf_val - capex_val)
-        # Determine labels
-        lbl_np_cf = 'Lợi Nhuận Ròng' if lang == 'vi' else 'Net Profit'
-        lbl_ocf_cf = 'Lưu Chuyển Hoạt Động' if lang == 'vi' else 'Operating CF'
-        lbl_fcf_cf = 'Dòng Tiền Tự Do' if lang == 'vi' else 'Free Cash Flow'
+        fcf_trend = [(ocf_val - capex_val) if (ocf_val is not None and np.isfinite(ocf_val)) else None for ocf_val, capex_val in zip(ocf_series, capex_trend)]
         figcf_compare = go.Figure()
-        figcf_compare.add_trace(go.Scatter(name=lbl_np_cf, x=cf_years, y=np_trend_full, mode='lines+markers'))
-        figcf_compare.add_trace(go.Scatter(name=lbl_ocf_cf, x=cf_years, y=ocf_trend, mode='lines+markers'))
-        figcf_compare.add_trace(go.Scatter(name=lbl_fcf_cf, x=cf_years, y=fcf_trend, mode='lines+markers'))
-        figcf_compare.update_layout(
-            title=("So sánh LN, LCT HĐ & FCF" if lang == 'vi' else "Net Profit, Operating CF & Free Cash Flow"),
-            height=350,
-            legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
-        )
+        figcf_compare.add_trace(go.Scatter(name=('Lợi Nhuận Ròng' if lang=='vi' else 'Net Profit'), x=cf_years, y=np_trend_full, mode='lines+markers'))
+        figcf_compare.add_trace(go.Scatter(name=('Lưu Chuyển Hoạt Động' if lang=='vi' else 'Operating CF'), x=cf_years, y=ocf_series, mode='lines+markers'))
+        figcf_compare.add_trace(go.Scatter(name=('Dòng Tiền Tự Do' if lang=='vi' else 'Free Cash Flow'), x=cf_years, y=fcf_trend, mode='lines+markers'))
+        figcf_compare.update_layout(title=("So sánh LN, LCT HĐ & FCF" if lang == 'vi' else "Net Profit, Operating CF & Free Cash Flow"), height=350, legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1))
         st.plotly_chart(figcf_compare, use_container_width=True, key="finance_cashflow_chart_extra")
 
-
-    # ================ TAB 4: FINANCIAL INDICATORS ===================
+    # ----------------- TAB 4: INDICATORS -----------------
     with tab4:
         st.markdown(f"### {get_text('financial_indicators_title', lang)}")
-        # List of 19 indicators to display
-        ind_list = [
-            'Current_Ratio','Quick_Ratio','Working_Capital_to_Total_Assets','Debt_to_Assets','Debt_to_Equity',
-            'Equity_to_Liabilities','Long_Term_Debt_to_Assets','Receivables_Turnover','Inventory_Turnover','Asset_Turnover',
-            'ROA','ROE','EBIT_to_Assets','Operating_Income_to_Debt','Net_Profit_Margin','Gross_Margin','Interest_Coverage','EBITDA_to_Interest','Total_Debt_to_EBITDA'
-        ]
-        ind_names_vi = [
-            'Tỷ Lệ Thanh Khoản Hiện Tại', 'Tỷ Lệ Thanh Khoản Nhanh', 'Vốn Lưu Động/Tổng Tài Sản', 'Tỷ Lệ Nợ/Tài Sản', 'Tỷ Lệ Nợ/Vốn Chủ',
-            'Vốn Chủ/Nợ', 'Nợ Dài Hạn/Tài Sản', 'Vòng Quay Phải Thu', 'Vòng Quay Tồn Kho', 'Vòng Quay Tài Sản',
-            'ROA', 'ROE', 'EBIT/Tài Sản', 'Thu Nhập Hoạt Động/Nợ', 'Biên Lợi Nhuận Ròng', 'Biên Lợi Nhuận Gộp', 'Khả Năng Chi Trả Lãi', 'EBITDA/Lãi Vay', 'Tổng Nợ/EBITDA'
-        ]
-        ind_names_en = [
-            'Current Ratio', 'Quick Ratio', 'Working Capital/Total Assets', 'Debt/Assets', 'Debt/Equity',
-            'Equity/Liabilities', 'Long-term Debt/Assets', 'Receivables Turnover', 'Inventory Turnover', 'Asset Turnover',
-            'ROA', 'ROE', 'EBIT/Assets', 'Operating Income/Debt', 'Net Profit Margin', 'Gross Margin', 'Interest Coverage', 'EBITDA/Interest', 'Total Debt/EBITDA'
-        ]
-        ind_values = []
-        ind_eval = []
-        for idx, col in enumerate(ind_list):
-            val = row_feat.get(col)
-            ind_values.append(val)
-            ind_eval.append(evaluate_ratio(col, val))
-        # Format values: percentages vs ratios
+        ind_list = ['Current_Ratio','Quick_Ratio','Working_Capital_to_Total_Assets','Debt_to_Assets','Debt_to_Equity','Equity_to_Liabilities','Long_Term_Debt_to_Assets','Receivables_Turnover','Inventory_Turnover','Asset_Turnover','ROA','ROE','EBIT_to_Assets','Operating_Income_to_Debt','Net_Profit_Margin','Gross_Margin','Interest_Coverage','EBITDA_to_Interest','Total_Debt_to_EBITDA']
+        ind_names_vi = ['Tỷ Lệ Thanh Khoản Hiện Tại','Tỷ Lệ Thanh Khoản Nhanh','Vốn Lưu Động/Tổng Tài Sản','Tỷ Lệ Nợ/Tài Sản','Tỷ Lệ Nợ/Vốn Chủ','Vốn Chủ/Nợ','Nợ Dài Hạn/Tài Sản','Vòng Quay Phải Thu','Vòng Quay Tồn Kho','Vòng Quay Tài Sản','ROA','ROE','EBIT/Tài Sản','Thu Nhập Hoạt Động/Nợ','Biên Lợi Nhuận Ròng','Biên Lợi Nhuận Gộp','Khả Năng Chi Trả Lãi','EBITDA/Lãi Vay','Tổng Nợ/EBITDA']
+        ind_names_en = ['Current Ratio','Quick Ratio','Working Capital/Total Assets','Debt/Assets','Debt/Equity','Equity/Liabilities','Long-term Debt/Assets','Receivables Turnover','Inventory Turnover','Asset Turnover','ROA','ROE','EBIT/Assets','Operating Income/Debt','Net Profit Margin','Gross Margin','Interest Coverage','EBITDA/Interest','Total Debt/EBITDA']
+        ind_values, ind_eval = [], []
+        for col in ind_list:
+            val = row_feat.get(col); ind_values.append(val); ind_eval.append(evaluate_ratio(col, val))
+
         display_values = []
         for col, val in zip(ind_list, ind_values):
             if col in ['ROA','ROE','Net_Profit_Margin','Gross_Margin','Working_Capital_to_Total_Assets','Debt_to_Assets','Debt_to_Equity','Equity_to_Liabilities','Long_Term_Debt_to_Assets']:
-                # show as percentage if between -1 and 1
                 display_values.append("-" if val is None or not np.isfinite(val) else f"{val*100:.2f}%")
             else:
                 display_values.append("-" if val is None or not np.isfinite(val) else f"{val:,.2f}")
-        indicators_df = pd.DataFrame({
-            ('Indicator' if lang == 'en' else 'Chỉ Số'): ind_names_en if lang == 'en' else ind_names_vi,
-            ('Value' if lang == 'en' else 'Giá Trị'): display_values,
-            ('Evaluation' if lang == 'en' else 'Đánh Giá'): ind_eval
-        })
+        indicators_df = pd.DataFrame({('Indicator' if lang == 'en' else 'Chỉ Số'): ind_names_en if lang == 'en' else ind_names_vi, ('Value' if lang == 'en' else 'Giá Trị'): display_values, ('Evaluation' if lang == 'en' else 'Đánh Giá'): ind_eval})
         st.dataframe(indicators_df, use_container_width=True, hide_index=True, key="finance_indicators_table")
-        # Multi‑year indicators
+
         multi_ind = ticker_feat[['Year'] + ind_list].copy()
-        # Format each indicator for display
         for col in ind_list:
             multi_ind[col] = multi_ind[col].apply(lambda x: np.nan if x is None or (not np.isfinite(x)) else x)
-        st.markdown("**" + ("Dữ liệu nhiều năm" if lang=='vi' else "Multi‑year Data") + "**")
+        st.markdown("**" + ("Dữ liệu nhiều năm" if lang=='vi' else "Multi-year Data") + "**")
         st.dataframe(multi_ind, use_container_width=True, hide_index=True, key="indicators_multiyear_table")
-        # Detailed multi‑year financial indicators table
+
         full_ind_table = build_full_indicator_table()
         st.markdown("**" + ("Bảng chỉ số tài chính chi tiết" if lang == 'vi' else "Detailed Financial Indicators") + "**")
         display_ind = full_ind_table.copy()
         for col in display_ind.columns[1:]:
             display_ind[col] = display_ind[col].apply(lambda x: fmt_val(x) if x is not None else '-')
         st.dataframe(display_ind, use_container_width=True, hide_index=True, key="indicators_full_table")
-        # Visualise selected financial ratios across years
-        # Define a subset of ratios to plot for clarity
+
         selected_codes = ['Current_Ratio','Debt_to_Equity','ROA','ROE','Net_Profit_Margin']
-        # Mapping from code to display name using existing lists
         indicator_name_map = {code: (ind_names_vi[idx] if lang == 'vi' else ind_names_en[idx]) for idx, code in enumerate(ind_list)}
         years_ind = multi_ind['Year'].astype(str).tolist()
-        # Define which codes should be represented as percentages
         percent_codes = ['ROA','ROE','Net_Profit_Margin','Gross_Margin','Working_Capital_to_Total_Assets','Debt_to_Assets','Debt_to_Equity','Equity_to_Liabilities','Long_Term_Debt_to_Assets']
         fig_ind = go.Figure()
         for code in selected_codes:
@@ -913,185 +612,75 @@ def render(feats_df: pd.DataFrame, raw_df: pd.DataFrame, ticker: str, year: int,
                 if val is None or (isinstance(val, float) and not np.isfinite(val)):
                     y_vals.append(None)
                 else:
-                    if code in percent_codes:
-                        y_vals.append(val * 100)
-                    else:
-                        y_vals.append(val)
+                    y_vals.append(val * 100 if code in percent_codes else val)
             fig_ind.add_trace(go.Scatter(name=indicator_name_map.get(code, code), x=years_ind, y=y_vals, mode='lines+markers'))
-        fig_ind.update_layout(
-            title=("Xu Hướng Một Số Chỉ Số Tài Chính" if lang == 'vi' else "Selected Financial Ratios Trend"),
-            height=350,
-            legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
-        )
+        fig_ind.update_layout(title=("Xu Hướng Một Số Chỉ Số Tài Chính" if lang == 'vi' else "Selected Financial Ratios Trend"), height=350, legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1))
         st.plotly_chart(fig_ind, use_container_width=True, key="finance_indicators_chart")
 
-        # Additional visualisation: efficiency ratios (turnover metrics) across years
         eff_codes = ['Asset_Turnover', 'Inventory_Turnover', 'Receivables_Turnover']
         fig_eff = go.Figure()
         for code in eff_codes:
-            y_vals_eff = []
-            for val in multi_ind[code].tolist():
-                if val is None or (isinstance(val, float) and not np.isfinite(val)):
-                    y_vals_eff.append(None)
-                else:
-                    y_vals_eff.append(val)
-            # Use the same indicator name map for display names
+            y_vals_eff = [None if (val is None or (isinstance(val, float) and not np.isfinite(val))) else val for val in multi_ind[code].tolist()]
             fig_eff.add_trace(go.Scatter(name=indicator_name_map.get(code, code), x=years_ind, y=y_vals_eff, mode='lines+markers'))
-        fig_eff.update_layout(
-            title=("Xu Hướng Chỉ Số Hiệu Suất" if lang == 'vi' else "Efficiency Ratios Trend"),
-            height=350,
-            legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
-        )
+        fig_eff.update_layout(title=("Xu Hướng Chỉ Số Hiệu Suất" if lang == 'vi' else "Efficiency Ratios Trend"), height=350, legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1))
         st.plotly_chart(fig_eff, use_container_width=True, key="finance_indicators_chart_extra")
 
-        # Additional visualisation: bar chart summarising all financial indicators for the current year
-        # Prepare numeric values (percentage where applicable) and colour mapping by evaluation
-        numeric_ind_vals = []
-        bar_colors = []
-        bar_names = []
+        # Overview bar
+        numeric_ind_vals, bar_colors, bar_names = [], [], []
         for code, val, eval_str in zip(ind_list, ind_values, ind_eval):
-            # Determine bar name based on language
             bar_names.append(indicator_name_map.get(code, code))
-            # Convert value to numeric; percentage for selected metrics
             if val is None or not np.isfinite(val):
                 numeric_ind_vals.append(0)
             else:
-                if code in ['ROA','ROE','Net_Profit_Margin','Gross_Margin','Working_Capital_to_Total_Assets','Debt_to_Assets','Debt_to_Equity','Equity_to_Liabilities','Long_Term_Debt_to_Assets']:
-                    numeric_ind_vals.append(val * 100)
-                else:
-                    numeric_ind_vals.append(val)
-            # Determine colour based on evaluation result
-            colour = '#d1d5db'  # default grey for unknown
+                numeric_ind_vals.append(val*100 if code in ['ROA','ROE','Net_Profit_Margin','Gross_Margin','Working_Capital_to_Total_Assets','Debt_to_Assets','Debt_to_Equity','Equity_to_Liabilities','Long_Term_Debt_to_Assets'] else val)
+            colour = '#d1d5db'
             if eval_str:
-                if ('Tốt' in eval_str) or ('Good' in eval_str):
-                    colour = '#22c55e'  # green
-                elif ('Bình' in eval_str) or ('Fair' in eval_str):
-                    colour = '#fbbf24'  # yellow/orange
-                elif ('Kém' in eval_str) or ('Poor' in eval_str):
-                    colour = '#ef4444'  # red
+                if ('Tốt' in eval_str) or ('Good' in eval_str): colour = '#22c55e'
+                elif ('Bình' in eval_str) or ('Fair' in eval_str): colour = '#fbbf24'
+                elif ('Kém' in eval_str) or ('Poor' in eval_str): colour = '#ef4444'
             bar_colors.append(colour)
         fig_bar_ind = go.Figure()
-        fig_bar_ind.add_trace(go.Bar(
-            x=numeric_ind_vals,
-            y=bar_names,
-            orientation='h',
-            marker_color=bar_colors
-        ))
-        fig_bar_ind.update_layout(
-            title=("Tổng quan các chỉ số tài chính" if lang == 'vi' else "Financial Ratios Overview"),
-            height=500,
-            xaxis=dict(title=('Giá trị' if lang == 'vi' else 'Value')),
-            yaxis=dict(automargin=True),
-            showlegend=False
-        )
+        fig_bar_ind.add_trace(go.Bar(x=numeric_ind_vals, y=bar_names, orientation='h', marker_color=bar_colors))
+        fig_bar_ind.update_layout(title=("Tổng quan các chỉ số tài chính" if lang == 'vi' else "Financial Ratios Overview"), height=500, xaxis=dict(title=('Giá trị' if lang == 'vi' else 'Value')), yaxis=dict(automargin=True), showlegend=False)
         st.plotly_chart(fig_bar_ind, use_container_width=True, key="finance_indicators_overview_chart")
 
-        # ------------------------------------------------------------------
-        # Additional visualisation: radar chart summarising category scores
-        # Compute category scores using evaluation results: Good=1, Fair=0.5, Poor=0
-        # Categories: Liquidity, Leverage, Profitability, Efficiency.  Averages
-        # scores for indicators within each category.  Missing/unknown values
-        # contribute 0.5 (neutral) to avoid biasing results.
-        eval_map_good = ['Tốt', 'Good']
-        eval_map_fair = ['Bình', 'Fair']
-        eval_map_poor = ['Kém', 'Poor']
-        # Build a mapping from indicator code to evaluation result for quick lookup
+        # Radar summary
+        eval_map_good, eval_map_fair, eval_map_poor = ['Tốt','Good'], ['Bình','Fair'], ['Kém','Poor']
         eval_dict = {code: ind_eval[idx] if idx < len(ind_eval) else None for idx, code in enumerate(ind_list)}
-        # Define categories and associated indicator codes
         categories_codes = {
-            'Liquidity': ['Current_Ratio', 'Quick_Ratio', 'Working_Capital_to_Total_Assets'],
-            'Leverage': ['Debt_to_Assets', 'Debt_to_Equity', 'Equity_to_Liabilities', 'Long_Term_Debt_to_Assets', 'Total_Debt_to_EBITDA'],
-            'Profitability': ['ROA', 'ROE', 'EBIT_to_Assets', 'Operating_Income_to_Debt', 'Net_Profit_Margin', 'Gross_Margin'],
-            'Efficiency': ['Asset_Turnover', 'Inventory_Turnover', 'Receivables_Turnover']
+            'Liquidity': ['Current_Ratio','Quick_Ratio','Working_Capital_to_Total_Assets'],
+            'Leverage': ['Debt_to_Assets','Debt_to_Equity','Equity_to_Liabilities','Long_Term_Debt_to_Assets','Total_Debt_to_EBITDA'],
+            'Profitability': ['ROA','ROE','EBIT_to_Assets','Operating_Income_to_Debt','Net_Profit_Margin','Gross_Margin'],
+            'Efficiency': ['Asset_Turnover','Inventory_Turnover','Receivables_Turnover']
         }
-        # Names by language for display on radar chart
-        cat_display = {
-            'Liquidity': ('Thanh khoản' if lang == 'vi' else 'Liquidity'),
-            'Leverage': ('Đòn bẩy' if lang == 'vi' else 'Leverage'),
-            'Profitability': ('Sinh lời' if lang == 'vi' else 'Profitability'),
-            'Efficiency': ('Hiệu suất' if lang == 'vi' else 'Efficiency')
-        }
-        # Compute scores per category
-        category_scores = []
-        category_labels = []
+        cat_display = {'Liquidity': ('Thanh khoản' if lang=='vi' else 'Liquidity'), 'Leverage': ('Đòn bẩy' if lang=='vi' else 'Leverage'), 'Profitability': ('Sinh lời' if lang=='vi' else 'Profitability'), 'Efficiency': ('Hiệu suất' if lang=='vi' else 'Efficiency')}
+        category_scores, category_labels = [], []
         for cat_key, codes in categories_codes.items():
             scores = []
             for code in codes:
                 ev = eval_dict.get(code)
                 if ev is None or (isinstance(ev, str) and ev.strip() == '-'):
-                    # neutral if unknown
                     scores.append(0.5)
                 else:
-                    # Determine base evaluation without arrows or arrow directions
-                    if any(keyword in ev for keyword in eval_map_good):
-                        scores.append(1.0)
-                    elif any(keyword in ev for keyword in eval_map_fair):
-                        scores.append(0.5)
-                    elif any(keyword in ev for keyword in eval_map_poor):
-                        scores.append(0.0)
-                    else:
-                        scores.append(0.5)
-            # Avoid division by zero
-            avg_score = np.mean(scores) if scores else 0.5
-            category_scores.append(avg_score * 100)  # convert to percentage
+                    if any(k in ev for k in eval_map_good): scores.append(1.0)
+                    elif any(k in ev for k in eval_map_fair): scores.append(0.5)
+                    elif any(k in ev for k in eval_map_poor): scores.append(0.0)
+                    else: scores.append(0.5)
+            category_scores.append(np.mean(scores)*100 if scores else 50.0)
             category_labels.append(cat_display.get(cat_key, cat_key))
-        # Build radar/polar chart
         fig_radar = go.Figure()
-        # Append first value to close the loop on polar chart
-        fig_radar.add_trace(go.Scatterpolar(
-            r=category_scores + [category_scores[0]] if category_scores else [],
-            theta=category_labels + [category_labels[0]] if category_labels else [],
-            fill='toself',
-            name=("Điểm theo nhóm" if lang == 'vi' else "Category Scores")
-        ))
-        fig_radar.update_layout(
-            title=("Tổng quan theo nhóm chỉ số" if lang == 'vi' else "Category Performance Overview"),
-            polar=dict(
-                radialaxis=dict(range=[0, 100], visible=True, tickvals=[0, 25, 50, 75, 100], ticktext=['0%', '25%', '50%', '75%', '100%']),
-                angularaxis=dict(rotation=90)
-            ),
-            height=400,
-            showlegend=False,
-            font=dict(family="Arial", size=14)
-        )
+        fig_radar.add_trace(go.Scatterpolar(r=category_scores + [category_scores[0]] if category_scores else [], theta=category_labels + [category_labels[0]] if category_labels else [], fill='toself', name=("Điểm theo nhóm" if lang == 'vi' else "Category Scores")))
+        fig_radar.update_layout(title=("Tổng quan theo nhóm chỉ số" if lang == 'vi' else "Category Performance Overview"), polar=dict(radialaxis=dict(range=[0,100], visible=True, tickvals=[0,25,50,75,100], ticktext=['0%','25%','50%','75%','100%']), angularaxis=dict(rotation=90)), height=400, showlegend=False, font=dict(family="Arial", size=14))
         st.plotly_chart(fig_radar, use_container_width=True, key="finance_indicators_radar_chart")
 
-        # Additional visualisation: gauge chart for overall financial health
-        # Overall score is the average of category scores
         overall_score = float(np.mean([s for s in category_scores if s is not None])) if category_scores else 50.0
-        # Define gauge segments to visually encode performance
-        fig_gauge = go.Figure(go.Indicator(
-            mode="gauge+number",
-            value=overall_score,
-            number={'suffix': '%'},
-            title={'text': ("Điểm tổng thể" if lang == 'vi' else "Overall Score")},
-            gauge={
-                'axis': {'range': [0, 100]},
-                'bar': {'color': '#3b82f6'},
-                'steps': [
-                    {'range': [0, 33], 'color': '#fca5a5'},
-                    {'range': [33, 66], 'color': '#fde68a'},
-                    {'range': [66, 100], 'color': '#86efac'}
-                ],
-                'threshold': {
-                    'line': {'color': '#ef4444', 'width': 4},
-                    'thickness': 0.75,
-                    'value': overall_score
-                }
-            }
-        ))
-        fig_gauge.update_layout(
-            height=300,
-            margin=dict(t=30, b=10, l=20, r=20),
-            font=dict(family="Arial", size=14)
-        )
+        fig_gauge = go.Figure(go.Indicator(mode="gauge+number", value=overall_score, number={'suffix': '%'}, title={'text': ("Điểm tổng thể" if lang == 'vi' else "Overall Score")}, gauge={'axis': {'range': [0,100]}, 'bar': {'color': '#3b82f6'}, 'steps': [{'range': [0,33], 'color':'#fca5a5'},{'range':[33,66],'color':'#fde68a'},{'range':[66,100],'color':'#86efac'}], 'threshold': {'line': {'color':'#ef4444','width':4}, 'thickness': 0.75, 'value': overall_score}}))
+        fig_gauge.update_layout(height=300, margin=dict(t=30,b=10,l=20,r=20), font=dict(family="Arial", size=14))
         st.plotly_chart(fig_gauge, use_container_width=True, key="finance_indicators_gauge_chart")
 
-
-    # ================ TAB 5: NOTES & ASSESSMENT ===================
+    # ----------------- TAB 5: NOTES -----------------
     with tab5:
         st.markdown(f"### {get_text('notes_assessment_title', lang)}")
-        # Compute YoY changes for revenue and net profit
         prev_raw = raw_df[(raw_df['Ticker'].astype(str) == str(ticker)) & (raw_df['Year'] == year - 1)]
         if not prev_raw.empty:
             prev_row = prev_raw.iloc[0]
@@ -1100,61 +689,27 @@ def render(feats_df: pd.DataFrame, raw_df: pd.DataFrame, ticker: str, year: int,
             rev_growth = (revenue - prev_rev) / prev_rev if prev_rev != 0 else np.nan
             np_growth = (net_profit - prev_np) / prev_np if prev_np != 0 else np.nan
         else:
-            rev_growth = np.nan
-            np_growth = np.nan
-        # Compose summary sentences
+            rev_growth = np.nan; np_growth = np.nan
+
         if lang == 'vi':
             summary_lines = []
-            # Revenue change
             if np.isfinite(rev_growth):
-                if rev_growth >= 0:
-                    summary_lines.append(f"- Doanh thu tăng {rev_growth*100:.1f}% so với năm trước, đạt {fmt_val(revenue)} tỷ VND")
-                else:
-                    summary_lines.append(f"- Doanh thu giảm {abs(rev_growth)*100:.1f}% so với năm trước, còn {fmt_val(revenue)} tỷ VND")
-            # Net profit change
+                summary_lines.append(f"- Doanh thu {'tăng' if rev_growth>=0 else 'giảm'} {abs(rev_growth)*100:.1f}% so với năm trước, đạt {fmt_val(revenue)} tỷ VND")
             if np.isfinite(np_growth):
-                if np_growth >= 0:
-                    summary_lines.append(f"- Lợi nhuận ròng tăng {np_growth*100:.1f}% lên {fmt_val(net_profit)} tỷ VND")
-                else:
-                    summary_lines.append(f"- Lợi nhuận ròng giảm {abs(np_growth)*100:.1f}% xuống còn {fmt_val(net_profit)} tỷ VND")
+                summary_lines.append(f"- Lợi nhuận ròng {'tăng' if np_growth>=0 else 'giảm'} {abs(np_growth)*100:.1f}% {'lên' if np_growth>=0 else 'còn'} {fmt_val(net_profit)} tỷ VND")
             summary_lines.append(f"- Lưu chuyển tiền từ hoạt động là {fmt_val(ocf)} tỷ VND")
             st.markdown("**Tóm Tắt Hoạt Động:**\n" + "\n".join(summary_lines))
-            # Basic analysis and risk notes
-            st.markdown("**Phân Tích Kết Quả:**\n" +
-                        f"- Biên lợi nhuận ròng {display_values[14]} cho thấy hiệu quả kinh doanh.\n" +
-                        f"- Tỷ lệ nợ/tài sản {display_values[3]} và nợ/vốn {display_values[4]} phản ánh cơ cấu vốn.\n" +
-                        f"- Tỷ lệ thanh khoản hiện tại {display_values[0]} và thanh khoản nhanh {display_values[1]} đánh giá khả năng thanh toán.")
-            st.markdown("**Rủi Ro Chính:**\n" +
-                        "- Rủi ro thanh khoản khi tỷ lệ thanh khoản thấp\n" +
-                        "- Biến động lợi nhuận do chi phí tài chính và thị trường\n" +
-                        "- Sức ép cạnh tranh trong ngành và biến động vĩ mô")
-            st.markdown("**Dự Báo:**\n" +
-                        "- Doanh thu và lợi nhuận dự kiến biến động theo xu hướng ngành\n" +
-                        "- Công ty cần tối ưu cấu trúc vốn và kiểm soát chi phí để cải thiện tỷ suất sinh lời\n" +
-                        "- Nhu cầu vốn lưu động có thể tăng khi mở rộng sản xuất")
+            st.markdown("**Phân Tích Kết Quả:**\n" + f"- Biên lợi nhuận ròng {display_values[14]} cho thấy hiệu quả kinh doanh.\n" + f"- Tỷ lệ nợ/tài sản {display_values[3]} và nợ/vốn {display_values[4]} phản ánh cơ cấu vốn.\n" + f"- Tỷ lệ thanh khoản hiện tại {display_values[0]} và thanh khoản nhanh {display_values[1]} đánh giá khả năng thanh toán.")
+            st.markdown("**Rủi Ro Chính:**\n- Rủi ro thanh khoản khi tỷ lệ thanh khoản thấp\n- Biến động lợi nhuận do chi phí tài chính và thị trường\n- Sức ép cạnh tranh trong ngành và biến động vĩ mô")
+            st.markdown("**Dự Báo:**\n- Doanh thu và lợi nhuận dự kiến biến động theo xu hướng ngành\n- Công ty cần tối ưu cấu trúc vốn và kiểm soát chi phí để cải thiện tỷ suất sinh lời\n- Nhu cầu vốn lưu động có thể tăng khi mở rộng sản xuất")
         else:
             summary_lines = []
             if np.isfinite(rev_growth):
-                if rev_growth >= 0:
-                    summary_lines.append(f"- Revenue increased {rev_growth*100:.1f}% YoY to {fmt_val(revenue)} bn VND")
-                else:
-                    summary_lines.append(f"- Revenue decreased {abs(rev_growth)*100:.1f}% YoY to {fmt_val(revenue)} bn VND")
+                summary_lines.append(f"- Revenue {'increased' if rev_growth>=0 else 'decreased'} {abs(rev_growth)*100:.1f}% YoY to {fmt_val(revenue)} bn VND")
             if np.isfinite(np_growth):
-                if np_growth >= 0:
-                    summary_lines.append(f"- Net profit increased {np_growth*100:.1f}% to {fmt_val(net_profit)} bn VND")
-                else:
-                    summary_lines.append(f"- Net profit decreased {abs(np_growth)*100:.1f}% to {fmt_val(net_profit)} bn VND")
+                summary_lines.append(f"- Net profit {'increased' if np_growth>=0 else 'decreased'} {abs(np_growth)*100:.1f}% to {fmt_val(net_profit)} bn VND")
             summary_lines.append(f"- Operating cash flow was {fmt_val(ocf)} bn VND")
             st.markdown("**Business Summary:**\n" + "\n".join(summary_lines))
-            st.markdown("**Results Analysis:**\n" +
-                        f"- Net profit margin of {display_values[14]} indicates operational efficiency.\n" +
-                        f"- Debt/Assets of {display_values[3]} and Debt/Equity of {display_values[4]} reflect capital structure.\n" +
-                        f"- Current and quick ratios of {display_values[0]} and {display_values[1]} assess liquidity.")
-            st.markdown("**Key Risks:**\n" +
-                        "- Liquidity risk if current ratios are low\n" +
-                        "- Earnings volatility due to financial costs and market conditions\n" +
-                        "- Competitive pressure in the industry and macroeconomic headwinds")
-            st.markdown("**Outlook:**\n" +
-                        "- Revenue and profit expected to follow industry trends\n" +
-                        "- Company should optimize capital structure and control costs to improve profitability\n" +
-                        "- Working capital needs may rise with production expansion")
+            st.markdown("**Results Analysis:**\n" + f"- Net profit margin of {display_values[14]} indicates operational efficiency.\n" + f"- Debt/Assets of {display_values[3]} and Debt/Equity of {display_values[4]} reflect capital structure.\n" + f"- Current and quick ratios of {display_values[0]} and {display_values[1]} assess liquidity.")
+            st.markdown("**Key Risks:**\n- Liquidity risk if current ratios are low\n- Earnings volatility due to financial costs and market conditions\n- Competitive pressure in the industry and macroeconomic headwinds")
+            st.markdown("**Outlook:**\n- Revenue and profit expected to follow industry trends\n- Company should optimize capital structure and control costs to improve profitability\n- Working capital needs may rise with production expansion")
