@@ -8,6 +8,12 @@ import pandas as pd
 import streamlit as st
 import plotly.graph_objects as go
 from utils_new.lang import get_text
+# We no longer rely on an external example spreadsheet for detailed statement
+# layouts.  All detailed tables are constructed directly from the provided
+# `bctc_final.csv` and `financial_indicators.csv` data.  The mappings of
+# descriptive line items to underlying column names are defined inside the
+# `render` function below.  Visualizations accompany each table to help
+# users interpret multi‑year trends.
 
 def render(feats_df: pd.DataFrame, raw_df: pd.DataFrame, ticker: str, year: int,
            model, thresholds, sector: str, final_features: list):
@@ -97,6 +103,192 @@ def render(feats_df: pd.DataFrame, raw_df: pd.DataFrame, ticker: str, year: int,
     ticker_raw = ticker_raw.sort_values("Year")
     ticker_feat = feats_df[feats_df["Ticker"].astype(str) == str(ticker)].copy().sort_values("Year")
 
+    # -------------------------------------------------------------------------
+    # Helper functions to construct full statement tables from the raw data.
+    # These use mappings of human‑readable line items to column names in
+    # `bctc_final.csv`.  For each selected ticker, they pivot values across
+    # available years to match the multi‑year layout seen in the example file.
+
+    def build_full_income_table():
+        """Construct a detailed income statement across years for the selected ticker."""
+        income_mapping = [
+            {'en': 'Net Revenue', 'vi': 'Doanh Thu Thuần', 'columns': ['Net Sales', 'Revenue']},
+            {'en': 'Cost of Goods Sold', 'vi': 'Giá Vốn Hàng Bán', 'columns': ['Cost of Sales']},
+            {'en': 'Gross Profit', 'vi': 'Lợi Nhuận Gộp', 'columns': ['Gross Profit']},
+            {'en': 'Financial Income', 'vi': 'Doanh Thu Tài Chính', 'columns': ['Financial Income']},
+            {'en': 'Financial Expenses', 'vi': 'Chi Phí Tài Chính', 'columns': ['Financial Expenses']},
+            {'en': 'Profit from Joint Ventures', 'vi': 'Lợi Nhuận Từ Công Ty Liên Doanh', 'columns': ['Gain/(loss) from joint ventures', 'Net income from associated companies']},
+            {'en': 'Selling Expenses', 'vi': 'Chi Phí Bán Hàng', 'columns': ['Selling Expenses']},
+            {'en': 'Administrative Expenses', 'vi': 'Chi Phí Quản Lý', 'columns': ['General & Admin Expenses']},
+            {'en': 'Operating Profit', 'vi': 'Lợi Nhuận Hoạt Động', 'columns': ['Operating Profit/Loss']},
+            {'en': 'Profit Before Tax', 'vi': 'Lợi Nhuận Trước Thuế', 'columns': ['Profit before tax', 'Net Profit/Loss before tax']},
+            # Tax expense is sum of current and deferred business income taxes
+            {'en': 'Tax Expense', 'vi': 'Chi Phí Thuế', 'calc': lambda r: to_num(r.get('Business income tax - current')) + to_num(r.get('Business income tax - deferred'))},
+            {'en': 'Net Profit After Tax', 'vi': 'Lợi Nhuận Ròng', 'columns': ['Net Profit For the Year', 'Net Profit']},
+        ]
+        years = ticker_raw['Year'].tolist()
+        rows = []
+        for item in income_mapping:
+            row_data = {}
+            row_data['Chỉ tiêu' if lang == 'vi' else 'Item'] = item['vi'] if lang == 'vi' else item['en']
+            for yr in years:
+                sub = ticker_raw[ticker_raw['Year'] == yr]
+                val = None
+                if not sub.empty:
+                    r = sub.iloc[0]
+                    if 'calc' in item:
+                        try:
+                            val = item['calc'](r)
+                        except Exception:
+                            val = None
+                    else:
+                        for col in item['columns']:
+                            if col in r.index:
+                                v = r[col]
+                                if pd.notna(v):
+                                    val = v
+                                    break
+                # Convert value to numeric for consistency
+                val_num = to_num(val) if val is not None else None
+                row_data[str(yr)] = val_num
+            rows.append(row_data)
+        return pd.DataFrame(rows)
+
+    def build_full_balance_table():
+        """Construct a detailed balance sheet across years for the selected ticker."""
+        balance_mapping = [
+            {'en': 'Cash and Cash Equivalents', 'vi': 'Tiền & Tương Đương Tiền', 'columns': ['Cash and cash equivalents (Bn. VND)']},
+            {'en': 'Short-term Investments', 'vi': 'Đầu Tư Ngắn Hạn', 'columns': ['Short-term investments (Bn. VND)']},
+            {'en': 'Accounts Receivable', 'vi': 'Phải Thu', 'columns': ['Accounts receivable (Bn. VND)']},
+            {'en': 'Net Inventories', 'vi': 'Hàng Tồn Kho', 'columns': ['Net Inventories', 'Inventories, Net (Bn. VND)']},
+            {'en': 'Other Current Assets', 'vi': 'Tài Sản Ngắn Hạn Khác', 'columns': ['Other current assets']},
+            {'en': 'Current Assets', 'vi': 'Tổng Tài Sản Ngắn Hạn', 'columns': ['CURRENT ASSETS (Bn. VND)']},
+            {'en': 'Fixed Assets', 'vi': 'Tài Sản Cố Định', 'columns': ['Fixed assets (Bn. VND)']},
+            {'en': 'Long-term Investments', 'vi': 'Đầu Tư Dài Hạn', 'columns': ['Long-term investments (Bn. VND)']},
+            {'en': 'Other Non-current Assets', 'vi': 'Tài Sản Dài Hạn Khác', 'columns': ['Other non-current assets']},
+            {'en': 'Total Assets', 'vi': 'Tổng Tài Sản', 'columns': ['TOTAL ASSETS (Bn. VND)']},
+            {'en': 'Short-term Borrowings', 'vi': 'Vay Ngắn Hạn', 'columns': ['Short-term borrowings (Bn. VND)']},
+            {'en': 'Long-term Borrowings', 'vi': 'Vay Dài Hạn', 'columns': ['Long-term borrowings (Bn. VND)']},
+            {'en': 'Current Liabilities', 'vi': 'Nợ Ngắn Hạn', 'columns': ['Current liabilities (Bn. VND)']},
+            {'en': 'Long-term Liabilities', 'vi': 'Nợ Dài Hạn', 'columns': ['Long-term liabilities (Bn. VND)']},
+            {'en': 'Total Liabilities', 'vi': 'Tổng Nợ', 'columns': ['LIABILITIES (Bn. VND)']},
+            {'en': 'Owner’s Equity', 'vi': 'Vốn Chủ Sở Hữu', 'columns': ["OWNER'S EQUITY(Bn.VND)"]},
+            {'en': 'Capital and Reserves', 'vi': 'Vốn & Quỹ', 'columns': ['Capital and reserves (Bn. VND)']},
+            {'en': 'Undistributed Earnings', 'vi': 'LN Chưa Phân Phối', 'columns': ['Undistributed earnings (Bn. VND)']},
+            {'en': 'Total Resources', 'vi': 'Tổng Nguồn Vốn', 'columns': ['TOTAL RESOURCES (Bn. VND)']},
+        ]
+        years = ticker_raw['Year'].tolist()
+        rows = []
+        for item in balance_mapping:
+            row_data = {}
+            row_data['Chỉ tiêu' if lang == 'vi' else 'Item'] = item['vi'] if lang == 'vi' else item['en']
+            for yr in years:
+                sub = ticker_raw[ticker_raw['Year'] == yr]
+                val = None
+                if not sub.empty:
+                    r = sub.iloc[0]
+                    for col in item['columns']:
+                        if col in r.index:
+                            v = r[col]
+                            if pd.notna(v):
+                                val = v
+                                break
+                val_num = to_num(val) if val is not None else None
+                row_data[str(yr)] = val_num
+            rows.append(row_data)
+        return pd.DataFrame(rows)
+
+    def build_full_cashflow_table():
+        """Construct a detailed cash flow statement across years for the selected ticker."""
+        cashflow_mapping = [
+            {'en': 'Net Profit', 'vi': 'Lợi Nhuận Ròng', 'columns': ['Net Profit For the Year', 'Net Profit']},
+            {'en': 'Depreciation & Amortisation', 'vi': 'Khấu Hao & Khấu Hao', 'columns': ['Depreciation and Amortisation']},
+            {'en': 'Provision for Credit Losses', 'vi': 'Dự Phòng Tổn Thất', 'columns': ['Provision for credit losses']},
+            {'en': 'Unrealized FX Gain/Loss', 'vi': 'Lãi/Lỗ Tỷ Giá Chưa Thực Hiện', 'columns': ['Unrealized foreign exchange gain/loss']},
+            {'en': 'Profit/Loss from Disposal of Fixed Assets', 'vi': 'Lãi/Lỗ Từ Thanh Lý TSCĐ', 'columns': ['Profit/Loss from disposal of fixed assets']},
+            {'en': 'Profit/Loss from Investing Activities', 'vi': 'Lãi/Lỗ Hoạt Động Đầu Tư', 'columns': ['Profit/Loss from investing activities']},
+            {'en': 'Interest Expense', 'vi': 'Chi Phí Lãi Vay', 'columns': ['Interest Expense']},
+            {'en': 'Operating Profit Before Changes in Working Capital', 'vi': 'LN Trước Thay Đổi VLĐ', 'columns': ['Operating profit before changes in working capital']},
+            {'en': '(Increase)/Decrease in Receivables', 'vi': '(Tăng)/Giảm Phải Thu', 'columns': ['Increase/Decrease in receivables']},
+            {'en': '(Increase)/Decrease in Inventories', 'vi': '(Tăng)/Giảm Hàng Tồn Kho', 'columns': ['Increase/Decrease in inventories']},
+            {'en': 'Increase/(Decrease) in Payables', 'vi': 'Tăng/(Giảm) Phải Trả', 'columns': ['Increase/Decrease in payables']},
+            {'en': '(Increase)/Decrease in Prepaid Expenses', 'vi': '(Tăng)/Giảm Chi Phí Trả Trước', 'columns': ['Increase/Decrease in prepaid expenses']},
+            {'en': 'Net Cash Flow from Operating Activities', 'vi': 'LCT Thuần Hoạt Động', 'columns': ['Net cash inflows/outflows from operating activities']},
+            {'en': 'Purchase of Fixed Assets', 'vi': 'Chi Mua TSCĐ', 'columns': ['Purchase of fixed assets']},
+            {'en': 'Proceeds from Disposal of Fixed Assets', 'vi': 'Thu Thanh Lý TSCĐ', 'columns': ['Proceeds from disposal of fixed assets']},
+            {'en': 'Net Cash Flow from Investing Activities', 'vi': 'LCT Thuần Đầu Tư', 'columns': ['Net Cash Flows from Investing Activities']},
+            {'en': 'Proceeds from Borrowings', 'vi': 'Thu Từ Vay', 'columns': ['Proceeds from borrowings']},
+            {'en': 'Repayment of Borrowings', 'vi': 'Chi Trả Nợ Vay', 'columns': ['Repayment of borrowings']},
+            {'en': 'Dividends Paid', 'vi': 'Trả Cổ Tức', 'columns': ['Dividends paid']},
+            {'en': 'Cash Flow from Financial Activities', 'vi': 'LCT Tài Chính', 'columns': ['Cash flows from financial activities']},
+            {'en': 'Net Increase/(Decrease) in Cash', 'vi': 'Tăng/(Giảm) Tiền', 'columns': ['Net increase/decrease in cash and cash equivalents']},
+        ]
+        years = ticker_raw['Year'].tolist()
+        rows = []
+        for item in cashflow_mapping:
+            row_data = {}
+            row_data['Chỉ tiêu' if lang == 'vi' else 'Item'] = item['vi'] if lang == 'vi' else item['en']
+            for yr in years:
+                sub = ticker_raw[ticker_raw['Year'] == yr]
+                val = None
+                if not sub.empty:
+                    r = sub.iloc[0]
+                    for col in item['columns']:
+                        if col in r.index:
+                            v = r[col]
+                            if pd.notna(v):
+                                val = v
+                                break
+                val_num = to_num(val) if val is not None else None
+                row_data[str(yr)] = val_num
+            rows.append(row_data)
+        return pd.DataFrame(rows)
+
+    def build_full_indicator_table():
+        """Construct a detailed financial indicators table across years for the selected ticker."""
+        # Define indicators and their display names.  These mirror the 19 key
+        # ratios used elsewhere in the application.  If you wish to change
+        # which ratios are shown in this detailed table, modify this list.
+        ind_list_local = [
+            'Current_Ratio','Quick_Ratio','Working_Capital_to_Total_Assets','Debt_to_Assets','Debt_to_Equity',
+            'Equity_to_Liabilities','Long_Term_Debt_to_Assets','Receivables_Turnover','Inventory_Turnover','Asset_Turnover',
+            'ROA','ROE','EBIT_to_Assets','Operating_Income_to_Debt','Net_Profit_Margin','Gross_Margin','Interest_Coverage','EBITDA_to_Interest','Total_Debt_to_EBITDA'
+        ]
+        ind_names_vi_local = [
+            'Tỷ Lệ Thanh Khoản Hiện Tại', 'Tỷ Lệ Thanh Khoản Nhanh', 'Vốn Lưu Động/Tổng Tài Sản', 'Tỷ Lệ Nợ/Tài Sản', 'Tỷ Lệ Nợ/Vốn Chủ',
+            'Vốn Chủ/Nợ', 'Nợ Dài Hạn/Tài Sản', 'Vòng Quay Phải Thu', 'Vòng Quay Tồn Kho', 'Vòng Quay Tài Sản',
+            'ROA', 'ROE', 'EBIT/Tài Sản', 'Thu Nhập Hoạt Động/Nợ', 'Biên Lợi Nhuận Ròng', 'Biên Lợi Nhuận Gộp', 'Khả Năng Chi Trả Lãi', 'EBITDA/Lãi Vay', 'Tổng Nợ/EBITDA'
+        ]
+        ind_names_en_local = [
+            'Current Ratio', 'Quick Ratio', 'Working Capital/Total Assets', 'Debt/Assets', 'Debt/Equity',
+            'Equity/Liabilities', 'Long-term Debt/Assets', 'Receivables Turnover', 'Inventory Turnover', 'Asset Turnover',
+            'ROA', 'ROE', 'EBIT/Assets', 'Operating Income/Debt', 'Net Profit Margin', 'Gross Margin', 'Interest Coverage', 'EBITDA/Interest', 'Total Debt/EBITDA'
+        ]
+        indicator_map = {code: (vi_name if lang == 'vi' else en_name) for code, vi_name, en_name in zip(ind_list_local, ind_names_vi_local, ind_names_en_local)}
+        years = ticker_feat['Year'].tolist()
+        rows = []
+        for code in ind_list_local:
+            row_data = {}
+            row_data['Chỉ số' if lang == 'vi' else 'Indicator'] = indicator_map.get(code, code)
+            for yr in years:
+                sub = ticker_feat[ticker_feat['Year'] == yr]
+                val = None
+                if not sub.empty:
+                    r = sub.iloc[0]
+                    val = r.get(code, None)
+                # Format as percentage for certain ratios
+                if val is None or not np.isfinite(val):
+                    val_fmt = None
+                else:
+                    # Show as percentage if between -1 and 1 for selected ratios
+                    if code in ['ROA','ROE','Net_Profit_Margin','Gross_Margin','Working_Capital_to_Total_Assets','Debt_to_Assets','Debt_to_Equity','Equity_to_Liabilities','Long_Term_Debt_to_Assets']:
+                        val_fmt = val * 100
+                    else:
+                        val_fmt = val
+                row_data[str(yr)] = val_fmt
+            rows.append(row_data)
+        return pd.DataFrame(rows)
+
     # ================ TAB 1: INCOME STATEMENT ===================
     tab1, tab2, tab3, tab4, tab5 = st.tabs([
         get_text("finance_tab_income", lang),
@@ -107,11 +299,20 @@ def render(feats_df: pd.DataFrame, raw_df: pd.DataFrame, ticker: str, year: int,
     ])
 
     with tab1:
+        """
+        INCOME STATEMENT TAB
+
+        This tab displays a concise income statement for the selected year,
+        followed by a multi‑year summary and a detailed income statement
+        pivoted across all available years for the company.  A grouped bar
+        chart summarises revenue and net profit trends after the detailed
+        table, aligning with the requirement to visualise data beneath
+        the detailed data section.
+        """
         st.markdown(f"### {get_text('income_statement_title', lang)}")
         st.markdown(f"**{get_text('income_year', lang)}:** {year} | **{get_text('income_company', lang)}:** {ticker} | **{get_text('income_sector', lang)}:** {sector}")
 
-        # Extract income statement values
-        # Determine revenue using available columns (Net Sales preferred, fallback to Revenue (Bn. VND))
+        # Extract income statement values for the current year
         revenue = to_num(row_raw.get('Net Sales', row_raw.get('Revenue', row_raw.get('Revenue (Bn. VND)', np.nan))))
         cogs = to_num(row_raw.get('Cost of Sales'))
         gross_profit = to_num(row_raw.get('Gross Profit'))
@@ -122,7 +323,7 @@ def render(feats_df: pd.DataFrame, raw_df: pd.DataFrame, ticker: str, year: int,
         profit_before_tax = to_num(row_raw.get('Profit before tax', row_raw.get('Net Profit/Loss before tax')))
         tax_expense = to_num(row_raw.get('Business income tax - current')) + to_num(row_raw.get('Business income tax - deferred'))
         net_profit = to_num(row_raw.get('Net Profit For the Year'))
-
+        # Build current year summary table
         income_items_vi = [
             'Doanh Thu Thuần', 'Giá Vốn Hàng Bán', 'Lợi Nhuận Gộp',
             'Chi Phí Bán Hàng', 'Chi Phí Quản Lý', 'Lợi Nhuận Hoạt Động',
@@ -137,10 +338,7 @@ def render(feats_df: pd.DataFrame, raw_df: pd.DataFrame, ticker: str, year: int,
                   operating_profit, interest_exp, profit_before_tax, tax_expense, net_profit]
         percentages = []
         for v in values:
-            if revenue != 0:
-                pct = v / revenue
-            else:
-                pct = 0.0
+            pct = (v / revenue) if revenue != 0 else 0.0
             percentages.append(f"{pct*100:.1f}%")
         header_key = get_text("stress_table_scenario", lang) if lang == 'en' else "Chỉ Tiêu"
         income_df = pd.DataFrame({
@@ -149,11 +347,25 @@ def render(feats_df: pd.DataFrame, raw_df: pd.DataFrame, ticker: str, year: int,
             ("% of Revenue" if lang == 'en' else "% Doanh Thu"): percentages
         })
         st.dataframe(income_df, use_container_width=True, hide_index=True, key="finance_income_table")
-
-        # Show trend of revenue and net profit across years
+        # Multi‑year summary for revenue and net profit
         trend_years = ticker_raw['Year'].astype(str).tolist()
         trend_rev = [to_num(v) for v in ticker_raw.get('Net Sales', ticker_raw.get('Revenue', ticker_raw.get('Revenue (Bn. VND)', np.nan)))]
         trend_np = [to_num(v) for v in ticker_raw.get('Net Profit For the Year', ticker_raw.get('Net Profit', np.nan))]
+        multi_income = pd.DataFrame({
+            'Year': ticker_raw['Year'],
+            ("Net Revenue" if lang == 'en' else "Doanh Thu"): trend_rev,
+            ("Net Profit" if lang == 'en' else "Lợi Nhuận Ròng"): trend_np
+        })
+        st.markdown("**" + ("Dữ liệu nhiều năm" if lang=='vi' else "Multi‑year Data") + "**")
+        st.dataframe(multi_income, use_container_width=True, hide_index=True, key="income_multiyear_table")
+        # Detailed multi‑year income statement (pivot)
+        full_income_table = build_full_income_table()
+        st.markdown("**" + ("Báo cáo kết quả kinh doanh chi tiết" if lang == 'vi' else "Detailed Income Statement") + "**")
+        display_income = full_income_table.copy()
+        for col in display_income.columns[1:]:  # format numeric columns
+            display_income[col] = display_income[col].apply(lambda x: fmt_val(x) if x is not None else '-')
+        st.dataframe(display_income, use_container_width=True, hide_index=True, key="income_full_table")
+        # Visualise revenue and net profit trend below the detailed data
         fig = go.Figure(data=[
             go.Bar(name=get_text('metric_revenue', lang), x=trend_years, y=trend_rev),
             go.Bar(name=get_text('metric_net_profit', lang), x=trend_years, y=trend_np)
@@ -165,14 +377,6 @@ def render(feats_df: pd.DataFrame, raw_df: pd.DataFrame, ticker: str, year: int,
         )
         st.plotly_chart(fig, use_container_width=True, key="finance_income_chart")
 
-        # Display multi‑year income summary table
-        multi_income = pd.DataFrame({
-            'Year': ticker_raw['Year'],
-            ("Net Revenue" if lang == 'en' else "Doanh Thu"): trend_rev,
-            ("Net Profit" if lang == 'en' else "Lợi Nhuận Ròng"): trend_np
-        })
-        st.markdown("**" + ("Dữ liệu nhiều năm" if lang=='vi' else "Multi‑year Data") + "**")
-        st.dataframe(multi_income, use_container_width=True, hide_index=True, key="income_multiyear_table")
 
     # ================ TAB 2: BALANCE SHEET ===================
     with tab2:
@@ -223,6 +427,34 @@ def render(feats_df: pd.DataFrame, raw_df: pd.DataFrame, ticker: str, year: int,
         })
         st.markdown("**" + ("Dữ liệu nhiều năm" if lang=='vi' else "Multi‑year Data") + "**")
         st.dataframe(multi_balance, use_container_width=True, hide_index=True, key="balance_multiyear_table")
+        # Detailed multi‑year balance sheet
+        full_balance_table = build_full_balance_table()
+        st.markdown("**" + ("Bảng cân đối kế toán chi tiết" if lang == 'vi' else "Detailed Balance Sheet") + "**")
+        display_balance = full_balance_table.copy()
+        for col in display_balance.columns[1:]:
+            display_balance[col] = display_balance[col].apply(lambda x: fmt_val(x) if x is not None else '-')
+        st.dataframe(display_balance, use_container_width=True, hide_index=True, key="balance_full_table")
+        # Visualise total assets, liabilities and equity trends below the detailed table
+        mb_years = multi_balance['Year'].astype(str).tolist()
+        # Extract series depending on language
+        assets_col = 'Tổng Tài Sản' if lang == 'vi' else 'Total Assets'
+        liabilities_col = 'Tổng Nợ' if lang == 'vi' else 'Total Liabilities'
+        equity_col = 'Vốn Chủ' if lang == 'vi' else 'Equity'
+        assets_series = multi_balance[assets_col].tolist()
+        liabilities_series = multi_balance[liabilities_col].tolist()
+        equity_series = multi_balance[equity_col].tolist()
+        figb = go.Figure(data=[
+            go.Bar(name=assets_col, x=mb_years, y=assets_series),
+            go.Bar(name=liabilities_col, x=mb_years, y=liabilities_series),
+            go.Bar(name=equity_col, x=mb_years, y=equity_series)
+        ])
+        figb.update_layout(
+            title=("Xu Hướng Tài Sản, Nợ & Vốn" if lang == 'vi' else "Assets, Liabilities & Equity Trend"),
+            barmode='group',
+            height=350
+        )
+        st.plotly_chart(figb, use_container_width=True, key="finance_balance_chart")
+
 
     # ================ TAB 3: CASH FLOW ===================
     with tab3:
@@ -274,6 +506,37 @@ def render(feats_df: pd.DataFrame, raw_df: pd.DataFrame, ticker: str, year: int,
         })
         st.markdown("**" + ("Dữ liệu nhiều năm" if lang=='vi' else "Multi‑year Data") + "**")
         st.dataframe(multi_cf, use_container_width=True, hide_index=True, key="cashflow_multiyear_table")
+        # Detailed multi‑year cash flow statement
+        full_cf_table = build_full_cashflow_table()
+        st.markdown("**" + ("Báo cáo lưu chuyển tiền tệ chi tiết" if lang == 'vi' else "Detailed Cash Flow Statement") + "**")
+        display_cf = full_cf_table.copy()
+        for col in display_cf.columns[1:]:
+            display_cf[col] = display_cf[col].apply(lambda x: fmt_val(x) if x is not None else '-')
+        st.dataframe(display_cf, use_container_width=True, hide_index=True, key="cashflow_full_table")
+        # Visualise operating, investing, financing and net change cash flows across years
+        cf_years = multi_cf['Year'].astype(str).tolist()
+        # Determine columns based on language
+        ocf_col = 'Lưu Chuyển Hoạt Động' if lang == 'vi' else 'Operating CF'
+        icf_col = 'Lưu Chuyển Đầu Tư' if lang == 'vi' else 'Investing CF'
+        fcf_col = 'Lưu Chuyển Tài Chính' if lang == 'vi' else 'Financing CF'
+        net_col = 'Thay Đổi Tiền Mặt' if lang == 'vi' else 'Net Change Cash'
+        ocf_series = multi_cf[ocf_col].tolist()
+        icf_series = multi_cf[icf_col].tolist()
+        fcf_series = multi_cf[fcf_col].tolist()
+        net_series = multi_cf[net_col].tolist()
+        figcf_multi = go.Figure(data=[
+            go.Bar(name=ocf_col, x=cf_years, y=ocf_series),
+            go.Bar(name=icf_col, x=cf_years, y=icf_series),
+            go.Bar(name=fcf_col, x=cf_years, y=fcf_series),
+            go.Bar(name=net_col, x=cf_years, y=net_series)
+        ])
+        figcf_multi.update_layout(
+            title=("Xu Hướng Lưu Chuyển Tiền" if lang == 'vi' else "Cash Flow Components Trend"),
+            barmode='group',
+            height=350
+        )
+        st.plotly_chart(figcf_multi, use_container_width=True, key="finance_cashflow_chart_multi")
+
 
     # ================ TAB 4: FINANCIAL INDICATORS ===================
     with tab4:
@@ -321,6 +584,40 @@ def render(feats_df: pd.DataFrame, raw_df: pd.DataFrame, ticker: str, year: int,
             multi_ind[col] = multi_ind[col].apply(lambda x: np.nan if x is None or (not np.isfinite(x)) else x)
         st.markdown("**" + ("Dữ liệu nhiều năm" if lang=='vi' else "Multi‑year Data") + "**")
         st.dataframe(multi_ind, use_container_width=True, hide_index=True, key="indicators_multiyear_table")
+        # Detailed multi‑year financial indicators table
+        full_ind_table = build_full_indicator_table()
+        st.markdown("**" + ("Bảng chỉ số tài chính chi tiết" if lang == 'vi' else "Detailed Financial Indicators") + "**")
+        display_ind = full_ind_table.copy()
+        for col in display_ind.columns[1:]:
+            display_ind[col] = display_ind[col].apply(lambda x: fmt_val(x) if x is not None else '-')
+        st.dataframe(display_ind, use_container_width=True, hide_index=True, key="indicators_full_table")
+        # Visualise selected financial ratios across years
+        # Define a subset of ratios to plot for clarity
+        selected_codes = ['Current_Ratio','Debt_to_Equity','ROA','ROE','Net_Profit_Margin']
+        # Mapping from code to display name using existing lists
+        indicator_name_map = {code: (ind_names_vi[idx] if lang == 'vi' else ind_names_en[idx]) for idx, code in enumerate(ind_list)}
+        years_ind = multi_ind['Year'].astype(str).tolist()
+        # Define which codes should be represented as percentages
+        percent_codes = ['ROA','ROE','Net_Profit_Margin','Gross_Margin','Working_Capital_to_Total_Assets','Debt_to_Assets','Debt_to_Equity','Equity_to_Liabilities','Long_Term_Debt_to_Assets']
+        fig_ind = go.Figure()
+        for code in selected_codes:
+            y_vals = []
+            for val in multi_ind[code].tolist():
+                if val is None or (isinstance(val, float) and not np.isfinite(val)):
+                    y_vals.append(None)
+                else:
+                    if code in percent_codes:
+                        y_vals.append(val * 100)
+                    else:
+                        y_vals.append(val)
+            fig_ind.add_trace(go.Scatter(name=indicator_name_map.get(code, code), x=years_ind, y=y_vals, mode='lines+markers'))
+        fig_ind.update_layout(
+            title=("Xu Hướng Một Số Chỉ Số Tài Chính" if lang == 'vi' else "Selected Financial Ratios Trend"),
+            height=350,
+            legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
+        )
+        st.plotly_chart(fig_ind, use_container_width=True, key="finance_indicators_chart")
+
 
     # ================ TAB 5: NOTES & ASSESSMENT ===================
     with tab5:
