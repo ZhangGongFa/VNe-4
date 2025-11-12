@@ -825,25 +825,127 @@ def render(feats_df: pd.DataFrame, raw_df: pd.DataFrame, ticker: str, year: int,
         else:
             rev_growth = np.nan; np_growth = np.nan
 
+        # Build comprehensive commentary with deeper analysis and recommendations
+        # Recompute indicator evaluations and category scores for this year
+        ind_list_comm = ['Current_Ratio','Quick_Ratio','Working_Capital_to_Total_Assets','Debt_to_Assets','Debt_to_Equity','Equity_to_Liabilities','Long_Term_Debt_to_Assets','Receivables_Turnover','Inventory_Turnover','Asset_Turnover','ROA','ROE','EBIT_to_Assets','Operating_Income_to_Debt','Net_Profit_Margin','Gross_Margin','Interest_Coverage','EBITDA_to_Interest','Total_Debt_to_EBITDA']
+        categories_codes_comm = {
+            'Liquidity': ['Current_Ratio','Quick_Ratio','Working_Capital_to_Total_Assets'],
+            'Leverage': ['Debt_to_Assets','Debt_to_Equity','Equity_to_Liabilities','Long_Term_Debt_to_Assets','Total_Debt_to_EBITDA'],
+            'Profitability': ['ROA','ROE','EBIT_to_Assets','Operating_Income_to_Debt','Net_Profit_Margin','Gross_Margin'],
+            'Efficiency': ['Asset_Turnover','Inventory_Turnover','Receivables_Turnover']
+        }
+        # Evaluate ratios (Good/Fair/Poor) and map to numerical scores
+        eval_map_good = ['Tốt','Good']
+        eval_map_fair = ['Bình','Fair']
+        eval_map_poor = ['Kém','Poor']
+        eval_dict_comm = {}
+        scores_dict_comm = {}
+        for code in ind_list_comm:
+            val = row_feat.get(code)
+            eval_str = evaluate_ratio(code, val)
+            eval_dict_comm[code] = eval_str
+            if eval_str is None or (isinstance(eval_str, str) and eval_str.strip() == '-'):
+                score = 0.5
+            else:
+                if any(k in eval_str for k in eval_map_good):
+                    score = 1.0
+                elif any(k in eval_str for k in eval_map_poor):
+                    score = 0.0
+                else:
+                    score = 0.5
+            scores_dict_comm[code] = score
+        # Compute category scores (0–100%)
+        category_scores_comm = {}
+        for cat_key, codes in categories_codes_comm.items():
+            cat_scores = [scores_dict_comm.get(c, 0.5) for c in codes]
+            category_scores_comm[cat_key] = np.mean(cat_scores)*100 if cat_scores else 50.0
+        # Compose narrative
         if lang == 'vi':
             summary_lines = []
             if np.isfinite(rev_growth):
                 summary_lines.append(f"- Doanh thu {'tăng' if rev_growth>=0 else 'giảm'} {abs(rev_growth)*100:.1f}% so với năm trước, đạt {fmt_val(revenue)} tỷ VND")
             if np.isfinite(np_growth):
                 summary_lines.append(f"- Lợi nhuận ròng {'tăng' if np_growth>=0 else 'giảm'} {abs(np_growth)*100:.1f}% {'lên' if np_growth>=0 else 'còn'} {fmt_val(net_profit)} tỷ VND")
-            summary_lines.append(f"- Lưu chuyển tiền từ hoạt động là {fmt_val(ocf)} tỷ VND")
+            summary_lines.append(f"- Dòng tiền từ hoạt động {'dương' if ocf>=0 else 'âm'} {fmt_val(abs(ocf))} tỷ VND")
             st.markdown("**Tóm Tắt Hoạt Động:**\n" + "\n".join(summary_lines))
-            st.markdown("**Phân Tích Kết Quả:**\n" + f"- Biên lợi nhuận ròng {display_values[14]} cho thấy hiệu quả kinh doanh.\n" + f"- Tỷ lệ nợ/tài sản {display_values[3]} và nợ/vốn {display_values[4]} phản ánh cơ cấu vốn.\n" + f"- Tỷ lệ thanh khoản hiện tại {display_values[0]} và thanh khoản nhanh {display_values[1]} đánh giá khả năng thanh toán.")
-            st.markdown("**Rủi Ro Chính:**\n- Rủi ro thanh khoản khi tỷ lệ thanh khoản thấp\n- Biến động lợi nhuận do chi phí tài chính và thị trường\n- Sức ép cạnh tranh trong ngành và biến động vĩ mô")
-            st.markdown("**Dự Báo:**\n- Doanh thu và lợi nhuận dự kiến biến động theo xu hướng ngành\n- Công ty cần tối ưu cấu trúc vốn và kiểm soát chi phí để cải thiện tỷ suất sinh lời\n- Nhu cầu vốn lưu động có thể tăng khi mở rộng sản xuất")
+            # Financial performance analysis
+            analysis_lines = []
+            analysis_lines.append(f"- Biên lợi nhuận ròng {display_values[14]} phản ánh {('hiệu quả' if '↑' in evaluate_ratio('Net_Profit_Margin', row_feat.get('Net_Profit_Margin')) else 'mức lợi nhuận thấp')}.")
+            analysis_lines.append(f"- Tỷ lệ nợ/tài sản {display_values[3]} và nợ/vốn {display_values[4]} cho thấy đòn bẩy tài chính ở mức {'an toàn' if scores_dict_comm.get('Debt_to_Assets',0.5)>=0.5 else 'cao'}.")
+            analysis_lines.append(f"- Tỷ lệ thanh khoản hiện tại {display_values[0]} và thanh khoản nhanh {display_values[1]} {('tương đối tốt' if scores_dict_comm.get('Current_Ratio',0.5)>=0.5 and scores_dict_comm.get('Quick_Ratio',0.5)>=0.5 else 'cần cải thiện')}.")
+            # Category commentary
+            cat_comments = []
+            for cat_k, score in category_scores_comm.items():
+                if score >= 75:
+                    status = 'mạnh'
+                elif score >= 50:
+                    status = 'trung bình'
+                else:
+                    status = 'yếu'
+                cat_vi = {'Liquidity':'Thanh khoản','Leverage':'Đòn bẩy','Profitability':'Sinh lời','Efficiency':'Hiệu suất'}.get(cat_k, cat_k)
+                cat_comments.append(f"- {cat_vi}: {score:.0f}% ({status})")
+            st.markdown("**Phân Tích Kết Quả:**\n" + "\n".join(analysis_lines + cat_comments))
+            # Risks and recommendations
+            risk_lines = [
+                "- Rủi ro thanh khoản nếu các chỉ số thanh khoản dưới chuẩn",
+                "- Rủi ro lợi nhuận do biên lợi nhuận biến động và chi phí tài chính cao",
+                "- Rủi ro đòn bẩy nếu tỷ lệ nợ cao so với vốn chủ sở hữu"
+            ]
+            rec_lines = [
+                "- Tăng cường kiểm soát vốn lưu động, cải thiện vòng quay hàng tồn kho và phải thu",
+                "- Xem xét tái cấu trúc nợ vay để giảm chi phí tài chính và tăng khả năng thanh toán",
+                "- Đẩy mạnh các dự án có biên lợi nhuận cao, tối ưu chi phí vận hành và quản lý"
+            ]
+            st.markdown("**Rủi Ro Chính:**\n" + "\n".join(risk_lines))
+            st.markdown("**Khuyến Nghị:**\n" + "\n".join(rec_lines))
+            # Outlook
+            outlook_lines = [
+                "- Doanh thu và lợi nhuận kỳ vọng tiếp tục theo xu hướng ngành và điều kiện thị trường",
+                "- Công ty nên tối ưu cấu trúc vốn và cải thiện khả năng sinh lời để nâng cao điểm xếp hạng tín dụng",
+                "- Nhu cầu vốn lưu động có thể tăng khi mở rộng sản xuất hoặc đầu tư mới"
+            ]
+            st.markdown("**Triển Vọng:**\n" + "\n".join(outlook_lines))
         else:
             summary_lines = []
             if np.isfinite(rev_growth):
                 summary_lines.append(f"- Revenue {'increased' if rev_growth>=0 else 'decreased'} {abs(rev_growth)*100:.1f}% YoY to {fmt_val(revenue)} bn VND")
             if np.isfinite(np_growth):
                 summary_lines.append(f"- Net profit {'increased' if np_growth>=0 else 'decreased'} {abs(np_growth)*100:.1f}% to {fmt_val(net_profit)} bn VND")
-            summary_lines.append(f"- Operating cash flow was {fmt_val(ocf)} bn VND")
+            summary_lines.append(f"- Operating cash flow was {'positive' if ocf>=0 else 'negative'} {fmt_val(abs(ocf))} bn VND")
             st.markdown("**Business Summary:**\n" + "\n".join(summary_lines))
-            st.markdown("**Results Analysis:**\n" + f"- Net profit margin of {display_values[14]} indicates operational efficiency.\n" + f"- Debt/Assets of {display_values[3]} and Debt/Equity of {display_values[4]} reflect capital structure.\n" + f"- Current and quick ratios of {display_values[0]} and {display_values[1]} assess liquidity.")
-            st.markdown("**Key Risks:**\n- Liquidity risk if current ratios are low\n- Earnings volatility due to financial costs and market conditions\n- Competitive pressure in the industry and macroeconomic headwinds")
-            st.markdown("**Outlook:**\n- Revenue and profit expected to follow industry trends\n- Company should optimize capital structure and control costs to improve profitability\n- Working capital needs may rise with production expansion")
+            analysis_lines = []
+            margin_eval = evaluate_ratio('Net_Profit_Margin', row_feat.get('Net_Profit_Margin'))
+            analysis_lines.append(f"- Net profit margin {display_values[14]} suggests {'healthy profitability' if any(k in margin_eval for k in eval_map_good) else 'low profitability'}.")
+            debt_status = 'comfortable' if scores_dict_comm.get('Debt_to_Assets',0.5)>=0.5 else 'elevated'
+            analysis_lines.append(f"- Debt/Assets of {display_values[3]} and Debt/Equity of {display_values[4]} indicate leverage is {debt_status}.")
+            liquidity_status = 'adequate' if scores_dict_comm.get('Current_Ratio',0.5)>=0.5 and scores_dict_comm.get('Quick_Ratio',0.5)>=0.5 else 'stretched'
+            analysis_lines.append(f"- Current and quick ratios of {display_values[0]} and {display_values[1]} show liquidity is {liquidity_status}.")
+            cat_comments_en = []
+            for cat_k, score in category_scores_comm.items():
+                if score >= 75:
+                    status = 'strong'
+                elif score >= 50:
+                    status = 'moderate'
+                else:
+                    status = 'weak'
+                cat_en = {'Liquidity':'Liquidity','Leverage':'Leverage','Profitability':'Profitability','Efficiency':'Efficiency'}.get(cat_k, cat_k)
+                cat_comments_en.append(f"- {cat_en}: {score:.0f}% ({status})")
+            st.markdown("**Results Analysis:**\n" + "\n".join(analysis_lines + cat_comments_en))
+            risk_lines_en = [
+                "- Liquidity risk if ratios fall below benchmarks",
+                "- Profitability risk due to volatile margins and high financial costs",
+                "- Leverage risk if debt ratios remain elevated"
+            ]
+            rec_lines_en = [
+                "- Strengthen working capital management; improve inventory and receivables turnover",
+                "- Consider debt restructuring to lower financial cost and enhance solvency",
+                "- Focus on high-margin projects and optimize operating and administrative expenses"
+            ]
+            st.markdown("**Key Risks:**\n" + "\n".join(risk_lines_en))
+            st.markdown("**Recommendations:**\n" + "\n".join(rec_lines_en))
+            outlook_lines_en = [
+                "- Revenue and profit are expected to follow industry trends and market conditions",
+                "- The company should optimise its capital structure and enhance profitability to improve credit rating",
+                "- Working capital demand may rise with capacity expansion or new investments"
+            ]
+            st.markdown("**Outlook:**\n" + "\n".join(outlook_lines_en))
