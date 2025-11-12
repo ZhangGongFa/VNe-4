@@ -472,60 +472,58 @@ def render(feats_df: pd.DataFrame, raw_df: pd.DataFrame, ticker: str, year: int,
         )
     # Right column: Interactive gauge charts for multiple models
     with col_pd2:
-        # Define default PD values for each model. Since only the LightGBM model is available, other models are approximated.
+        # Define PD values for each model. Since only the LightGBM model is available, other models are approximated.
         model_pd = {
             "LightGBM": pd_final,
             "XGBoost": min(max(pd_final * 1.05, 0.0), 1.0),
             "CatBoost": min(max(pd_final * 1.08, 0.0), 1.0),
             "AdaBoost": min(max(pd_final * 1.15, 0.0), 1.0),
         }
-        # Model selection radio to choose which PD gauge to enlarge
         model_options = ["LightGBM", "XGBoost", "CatBoost", "AdaBoost"]
-        default_idx = 0
-        selected_model = st.radio(
-            get_text("pd_model_selection", lang),
-            model_options,
-            index=default_idx,
-            horizontal=True,
-            key="pd_model_select_radio"
-        )
-        # Layout: one large gauge for selected model, smaller gauges for remaining models
-        # Sort models so selected first
-        ordered_models = [selected_model] + [m for m in model_options if m != selected_model]
-        subcols = st.columns([2, 1, 1, 1])
-        heights = [250, 180, 180, 180]
-        for _col, _name, _ht in zip(subcols, ordered_models, heights):
-            with _col:
-                pd_val = model_pd[_name]
-                # Determine colour intensity: highlight the best (LightGBM) by a darker bar
-                bar_color = '#1f77b4' if _name == 'LightGBM' else '#7db9e8'
-                fig_pd = go.Figure(go.Indicator(
-                    mode="gauge+number",
-                    value=pd_val * 100,
-                    number={'suffix': "%"},
-                    gauge={
-                        'axis': {'range': [0, 100]},
-                        'bar': {'color': bar_color},
-                        'steps': [
-                            {'range': [0, 20], 'color': '#E8F1FB'},
-                            {'range': [20, 50], 'color': '#CFE3F7'},
-                            {'range': [50, 100], 'color': '#F9E3E3'},
-                        ],
-                        'threshold': {'line': {'color': 'red', 'width': 2}, 'value': pd_val * 100},
-                    },
-                    title={'text': _name + ("*" if _name == 'LightGBM' else "")},
-                ))
-                fig_pd.update_layout(height=_ht, margin=dict(l=10, r=10, t=10, b=10))
-                st.plotly_chart(fig_pd, use_container_width=True)
-        # Display model performance rankings based on the research paper
-        if lang == 'vi':
-            st.markdown(
-                "**Thứ hạng mô hình (F1-Score):** LightGBM* (94.8%), XGBoost (91.0%), CatBoost (89.9%), AdaBoost (78.6%)",
-            )
-        else:
-            st.markdown(
-                "**Model ranking (F1-Score):** LightGBM* (94.8%), XGBoost (91.0%), CatBoost (89.9%), AdaBoost (78.6%)",
-            )
+        # Create tabs for each model; the active tab shows that model's gauge enlarged
+        tab_labels = [
+            (m + "*" if m == "LightGBM" else m) for m in model_options
+        ]
+        tabs_models = st.tabs(tab_labels)
+        for tab, selected_model in zip(tabs_models, model_options):
+            with tab:
+                # Determine the ordering: selected model first, others after
+                ordered_models = [selected_model] + [m for m in model_options if m != selected_model]
+                # Assign relative column widths: larger for selected model
+                subcols = st.columns([2, 1, 1, 1])
+                heights = [250, 180, 180, 180]
+                for _col, _name, _ht in zip(subcols, ordered_models, heights):
+                    with _col:
+                        pd_val = model_pd[_name]
+                        # Highlight the best model (LightGBM) with a darker bar colour
+                        bar_color = '#1f77b4' if _name == 'LightGBM' else '#7db9e8'
+                        fig_pd = go.Figure(go.Indicator(
+                            mode="gauge+number",
+                            value=pd_val * 100,
+                            number={'suffix': "%"},
+                            gauge={
+                                'axis': {'range': [0, 100]},
+                                'bar': {'color': bar_color},
+                                'steps': [
+                                    {'range': [0, 20], 'color': '#E8F1FB'},
+                                    {'range': [20, 50], 'color': '#CFE3F7'},
+                                    {'range': [50, 100], 'color': '#F9E3E3'},
+                                ],
+                                'threshold': {'line': {'color': 'red', 'width': 2}, 'value': pd_val * 100},
+                            },
+                            title={'text': _name + ("*" if _name == 'LightGBM' else "")},
+                        ))
+                        fig_pd.update_layout(height=_ht, margin=dict(l=10, r=10, t=10, b=10))
+                        st.plotly_chart(fig_pd, use_container_width=True)
+                # Display model performance ranking once per tab for context
+                if lang == 'vi':
+                    st.markdown(
+                        "**Thứ hạng mô hình (F1-Score):** LightGBM* (94.8%), XGBoost (91.0%), CatBoost (89.9%), AdaBoost (78.6%)",
+                    )
+                else:
+                    st.markdown(
+                        "**Model ranking (F1-Score):** LightGBM* (94.8%), XGBoost (91.0%), CatBoost (89.9%), AdaBoost (78.6%)",
+                    )
     # ------------------------------------------------------------------
     # Section C: Model Explainability (SHAP)
     st.subheader("C. Model Explainability (SHAP)")

@@ -337,6 +337,44 @@ def render(feats_df: pd.DataFrame, raw_df: pd.DataFrame, ticker: str, year: int,
         fig_margin.update_layout(title=("Xu Hướng Biên Lợi Nhuận" if lang == 'vi' else "Profit Margin Trends"), height=350, yaxis=dict(title=('Phần trăm (%)' if lang == 'vi' else 'Percentage (%)')), legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1))
         st.plotly_chart(fig_margin, use_container_width=True, key="finance_income_margin_chart")
 
+        # Narrative analysis for the income statement
+        # Compute year‑over‑year growth for revenue and net profit
+        rev_growth_rates = []
+        np_growth_rates = []
+        for i in range(1, len(trend_years)):
+            prev_rev = trend_rev[i-1] if trend_rev[i-1] else None
+            prev_np_val = trend_np[i-1] if trend_np[i-1] else None
+            cur_rev = trend_rev[i] if trend_rev[i] else None
+            cur_np_val = trend_np[i] if trend_np[i] else None
+            rev_growth_rates.append(((cur_rev - prev_rev) / prev_rev) if (prev_rev and prev_rev != 0) else np.nan)
+            np_growth_rates.append(((cur_np_val - prev_np_val) / prev_np_val) if (prev_np_val and prev_np_val != 0) else np.nan)
+        # Build narrative text summarising the latest year compared to previous year
+        if len(trend_years) >= 2:
+            last_rev_growth = rev_growth_rates[-1] if rev_growth_rates else np.nan
+            last_np_growth = np_growth_rates[-1] if np_growth_rates else np.nan
+            # Avoid division by zero by checking for finite values
+            if lang == 'vi':
+                narrative_income = "**Phân tích thu nhập:** "
+                if np.isfinite(last_rev_growth):
+                    narrative_income += f"Doanh thu {'tăng' if last_rev_growth >= 0 else 'giảm'} {abs(last_rev_growth)*100:.1f}% so với năm trước. "
+                if np.isfinite(last_np_growth):
+                    narrative_income += f"Lợi nhuận ròng {'tăng' if last_np_growth >= 0 else 'giảm'} {abs(last_np_growth)*100:.1f}% so với năm trước. "
+                avg_gm = np.nanmean([g for g in gross_margin_trend if g is not None]) if gross_margin_trend else np.nan
+                avg_om = np.nanmean([g for g in operating_margin_trend if g is not None]) if operating_margin_trend else np.nan
+                avg_nm = np.nanmean([g for g in net_margin_trend if g is not None]) if net_margin_trend else np.nan
+                narrative_income += f"Biên lợi nhuận gộp trung bình {avg_gm:.1f}%, biên lợi nhuận hoạt động {avg_om:.1f}% và biên lợi nhuận ròng {avg_nm:.1f}%."
+            else:
+                narrative_income = "**Income analysis:** "
+                if np.isfinite(last_rev_growth):
+                    narrative_income += f"Revenue {'increased' if last_rev_growth >= 0 else 'decreased'} by {abs(last_rev_growth)*100:.1f}% from the previous year. "
+                if np.isfinite(last_np_growth):
+                    narrative_income += f"Net profit {'increased' if last_np_growth >= 0 else 'decreased'} by {abs(last_np_growth)*100:.1f}% from the previous year. "
+                avg_gm = np.nanmean([g for g in gross_margin_trend if g is not None]) if gross_margin_trend else np.nan
+                avg_om = np.nanmean([g for g in operating_margin_trend if g is not None]) if operating_margin_trend else np.nan
+                avg_nm = np.nanmean([g for g in net_margin_trend if g is not None]) if net_margin_trend else np.nan
+                narrative_income += f"Average gross margin {avg_gm:.1f}%, operating margin {avg_om:.1f}% and net margin {avg_nm:.1f}%."
+            st.markdown(narrative_income)
+
     # ----------------- TAB 2: BALANCE SHEET -----------------
     with tab2:
         st.markdown(f"### {get_text('balance_sheet_title', lang)}")
@@ -509,87 +547,37 @@ def render(feats_df: pd.DataFrame, raw_df: pd.DataFrame, ticker: str, year: int,
             )
         st.markdown(narrative_asset)
 
-        # -------- Sunburst: Liabilities & Equity --------
+        # -------- Capital structure summary (replace faulty liabilities sunburst) --------
+        # Calculate capital structure metrics to provide narrative instead of a sunburst chart.
         total_liabilities_year = to_num(row_raw.get('LIABILITIES (Bn. VND)'))
         total_equity_year = to_num(row_raw.get("OWNER'S EQUITY(Bn.VND)"))
         total_resources_year = to_num(row_raw.get('TOTAL RESOURCES (Bn. VND)'))
         if total_resources_year <= 0:
-            total_resources_year = total_liabilities_year + total_equity_year
+            total_resources_year = (total_liabilities_year if total_liabilities_year else 0.0) + (total_equity_year if total_equity_year else 0.0)
         current_liabilities_year = to_num(row_raw.get('Current liabilities (Bn. VND)'))
         long_liabilities_year = to_num(row_raw.get('Long-term liabilities (Bn. VND)'))
-        other_liabilities_year = max(total_liabilities_year - (current_liabilities_year + long_liabilities_year), 0.0)
-        capital_reserves_year = to_num(row_raw.get('Capital and reserves (Bn. VND)'))
-        undistributed_earnings_year = to_num(row_raw.get('Undistributed earnings (Bn. VND)'))
-        other_equity_year = max(total_equity_year - (capital_reserves_year + undistributed_earnings_year), 0.0)
-
-        if total_resources_year > 0:
-            # Build labels and values for liability & equity sunburst
-            root_liab = 'Tổng Nợ & Vốn' if lang == 'vi' else 'Total Liabilities & Equity'
-            liabilities_label = 'Nợ' if lang == 'vi' else 'Liabilities'
-            equity_label = 'Vốn' if lang == 'vi' else 'Equity'
-            labels_liab = [root_liab, liabilities_label,
-                           ('Nợ ngắn hạn' if lang == 'vi' else 'Current Liabilities'),
-                           ('Nợ dài hạn' if lang == 'vi' else 'Long-term Liabilities'),
-                           ('Nợ khác' if lang == 'vi' else 'Other Liabilities'),
-                           equity_label,
-                           ('Vốn & Quỹ' if lang == 'vi' else 'Capital & Reserves'),
-                           ('LN chưa phân phối' if lang == 'vi' else 'Undistributed Earnings'),
-                           ('Vốn khác' if lang == 'vi' else 'Other Equity')]
-            parents_liab = ['', root_liab, liabilities_label, liabilities_label, liabilities_label,
-                            root_liab, equity_label, equity_label, equity_label]
-            values_liab = [
-                max(total_resources_year, 0.0),
-                max(total_liabilities_year, 0.0),
-                max(current_liabilities_year, 0.0),
-                max(long_liabilities_year, 0.0),
-                max(other_liabilities_year, 0.0),
-                max(total_equity_year, 0.0),
-                max(capital_reserves_year, 0.0),
-                max(undistributed_earnings_year, 0.0),
-                max(other_equity_year, 0.0),
-            ]
-            # Create sunburst for liabilities and equity
-            fig_sun_liab = go.Figure(go.Sunburst(
-                labels=labels_liab,
-                parents=parents_liab,
-                values=values_liab,
-                branchvalues='total'
-            ))
-            fig_sun_liab.update_layout(
-                title=("Cây phân rã Nợ & Vốn" if lang == 'vi' else "Liability & Equity Breakdown"),
-                height=450,
-                margin=dict(t=40, l=0, r=0, b=0)
-            )
-            st.plotly_chart(fig_sun_liab, use_container_width=True, key="finance_balance_liab_sunburst")
-
-            # --- Add narrative commentary about capital structure ---
-            # Compute shares for liabilities and equity relative to total resources
-            total_res_safe = total_resources_year if total_resources_year and total_resources_year > 0 else 1.0
-            liab_share = (total_liabilities_year / total_res_safe) if total_liabilities_year else 0.0
-            eq_share = (total_equity_year / total_res_safe) if total_equity_year else 0.0
-            curr_liab_share = (current_liabilities_year / total_res_safe) if current_liabilities_year else 0.0
-            long_liab_share = (long_liabilities_year / total_res_safe) if long_liabilities_year else 0.0
-            other_liab_share = (other_liabilities_year / total_res_safe) if other_liabilities_year else 0.0
-            cap_res_share = (capital_reserves_year / total_res_safe) if capital_reserves_year else 0.0
-            undis_share = (undistributed_earnings_year / total_res_safe) if undistributed_earnings_year else 0.0
-            other_eq_share = (other_equity_year / total_res_safe) if other_equity_year else 0.0
-            # Build commentary text
+        other_liabilities_year = max((total_liabilities_year if total_liabilities_year else 0.0) - ((current_liabilities_year or 0.0) + (long_liabilities_year or 0.0)), 0.0)
+        # Narratively summarise the capital structure using the ratio chart instead of a tree
+        if total_resources_year > 0 and (total_liabilities_year or total_equity_year):
+            liab_share = (total_liabilities_year / total_resources_year) if total_resources_year else 0.0
+            eq_share = (total_equity_year / total_resources_year) if total_resources_year else 0.0
+            curr_liab_share = (current_liabilities_year / total_resources_year) if current_liabilities_year else 0.0
+            long_liab_share = (long_liabilities_year / total_resources_year) if long_liabilities_year else 0.0
+            other_liab_share = (other_liabilities_year / total_resources_year) if other_liabilities_year else 0.0
+            # Provide narrative summarising the capital structure
             if lang == 'vi':
-                narrative = (
-                    f"**Phân tích nguồn vốn:** Tổng nợ chiếm khoảng {liab_share*100:.1f}% tổng nguồn vốn, "
+                narrative_cap = (
+                    f"**Cơ cấu nguồn vốn:** Tổng nợ chiếm {liab_share*100:.1f}% tổng nguồn vốn, "
                     f"trong đó nợ ngắn hạn {curr_liab_share*100:.1f}%, nợ dài hạn {long_liab_share*100:.1f}% và nợ khác {other_liab_share*100:.1f}%. "
-                    f"Vốn chủ sở hữu chiếm {eq_share*100:.1f}%, bao gồm {cap_res_share*100:.1f}% vốn & quỹ, {undis_share*100:.1f}% lợi nhuận chưa phân phối "
-                    f"và {other_eq_share*100:.1f}% vốn khác."
+                    f"Vốn chủ sở hữu chiếm {eq_share*100:.1f}%."
                 )
             else:
-                narrative = (
-                    f"**Capital structure analysis:** Liabilities account for about {liab_share*100:.1f}% of total capital, "
+                narrative_cap = (
+                    f"**Capital structure:** Liabilities account for {liab_share*100:.1f}% of total capital, "
                     f"with current liabilities at {curr_liab_share*100:.1f}%, long-term liabilities at {long_liab_share*100:.1f}% and other liabilities at {other_liab_share*100:.1f}%. "
-                    f"Equity makes up {eq_share*100:.1f}%, comprising {cap_res_share*100:.1f}% capital & reserves, {undis_share*100:.1f}% undistributed earnings and {other_eq_share*100:.1f}% other equity."
+                    f"Equity makes up {eq_share*100:.1f}%."
                 )
-            st.markdown(narrative)
-        else:
-            st.info("Không có dữ liệu để hiển thị cây phân rã nợ & vốn" if lang == 'vi' else "Insufficient data for liability & equity breakdown")
+            st.markdown(narrative_cap)
 
     # ----------------- TAB 3: CASH FLOW -----------------
     with tab3:
@@ -659,6 +647,40 @@ def render(feats_df: pd.DataFrame, raw_df: pd.DataFrame, ticker: str, year: int,
         figcf_compare.add_trace(go.Scatter(name=('Dòng Tiền Tự Do' if lang=='vi' else 'Free Cash Flow'), x=cf_years, y=fcf_trend, mode='lines+markers'))
         figcf_compare.update_layout(title=("So sánh LN, LCT HĐ & FCF" if lang == 'vi' else "Net Profit, Operating CF & Free Cash Flow"), height=350, legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1))
         st.plotly_chart(figcf_compare, use_container_width=True, key="finance_cashflow_chart_extra")
+
+        # Narrative analysis for the cash flow statement
+        # Interpret signs of operating, investing and financing cash flows for the current year
+        ocf_desc = investing_desc = financing_desc = net_desc = ""
+        # Determine the direction (positive/negative) and magnitude of cash flows
+        ocf_val = ocf  # operating cash flow from current year
+        inv_val = investing_cf
+        fin_val = financing_cf
+        net_val = net_change_cash
+        if lang == 'vi':
+            narrative_cf = "**Phân tích lưu chuyển tiền tệ:** "
+            # Operating cash flow
+            if np.isfinite(ocf_val):
+                narrative_cf += f"Dòng tiền từ hoạt động {'dương' if ocf_val >= 0 else 'âm'} {abs(ocf_val):,.2f} tỷ VND, "
+            # Investing cash flow
+            if np.isfinite(inv_val):
+                narrative_cf += f"dòng tiền từ đầu tư {'dương' if inv_val >= 0 else 'âm'} {abs(inv_val):,.2f} tỷ VND, "
+            # Financing cash flow
+            if np.isfinite(fin_val):
+                narrative_cf += f"dòng tiền từ tài chính {'dương' if fin_val >= 0 else 'âm'} {abs(fin_val):,.2f} tỷ VND. "
+            # Net change in cash
+            if np.isfinite(net_val):
+                narrative_cf += f"Tổng hợp lại, tiền mặt {'tăng' if net_val >= 0 else 'giảm'} {abs(net_val):,.2f} tỷ VND so với đầu kỳ."
+        else:
+            narrative_cf = "**Cash flow analysis:** "
+            if np.isfinite(ocf_val):
+                narrative_cf += f"Operating cash flow was {'positive' if ocf_val >= 0 else 'negative'} {abs(ocf_val):,.2f} bn VND, "
+            if np.isfinite(inv_val):
+                narrative_cf += f"investing cash flow was {'positive' if inv_val >= 0 else 'negative'} {abs(inv_val):,.2f} bn VND, "
+            if np.isfinite(fin_val):
+                narrative_cf += f"financing cash flow was {'positive' if fin_val >= 0 else 'negative'} {abs(fin_val):,.2f} bn VND. "
+            if np.isfinite(net_val):
+                narrative_cf += f"Overall, cash {'increased' if net_val >= 0 else 'decreased'} by {abs(net_val):,.2f} bn VND from the beginning of the period."
+        st.markdown(narrative_cf)
 
     # ----------------- TAB 4: INDICATORS -----------------
     with tab4:
@@ -768,6 +790,27 @@ def render(feats_df: pd.DataFrame, raw_df: pd.DataFrame, ticker: str, year: int,
         fig_gauge = go.Figure(go.Indicator(mode="gauge+number", value=overall_score, number={'suffix': '%'}, title={'text': ("Điểm tổng thể" if lang == 'vi' else "Overall Score")}, gauge={'axis': {'range': [0,100]}, 'bar': {'color': '#3b82f6'}, 'steps': [{'range': [0,33], 'color':'#fca5a5'},{'range':[33,66],'color':'#fde68a'},{'range':[66,100],'color':'#86efac'}], 'threshold': {'line': {'color':'#ef4444','width':4}, 'thickness': 0.75, 'value': overall_score}}))
         fig_gauge.update_layout(height=300, margin=dict(t=30,b=10,l=20,r=20), font=dict(family="Arial", size=14))
         st.plotly_chart(fig_gauge, use_container_width=True, key="finance_indicators_gauge_chart")
+
+        # Narrative analysis for financial indicators
+        good_count = sum(1 for ev in ind_eval if ev and ((('Tốt' in ev) or ('Good' in ev))))
+        fair_count = sum(1 for ev in ind_eval if ev and ((('Bình' in ev) or ('Fair' in ev))))
+        poor_count = sum(1 for ev in ind_eval if ev and ((('Kém' in ev) or ('Poor' in ev))))
+        # Prepare category performance text
+        cat_perf_lines = []
+        for cat_label, score in zip(category_labels, category_scores):
+            if lang == 'vi':
+                cat_perf_lines.append(f"{cat_label}: {score:.1f}%")
+            else:
+                cat_perf_lines.append(f"{cat_label}: {score:.1f}%")
+        if lang == 'vi':
+            narrative_ind = "**Đánh giá chỉ số:** "
+            narrative_ind += f"Có {good_count} chỉ số Tốt, {fair_count} chỉ số Bình thường và {poor_count} chỉ số Kém. "
+            narrative_ind += "; ".join(cat_perf_lines) + "."
+        else:
+            narrative_ind = "**Indicator assessment:** "
+            narrative_ind += f"There are {good_count} good metrics, {fair_count} fair metrics and {poor_count} poor metrics. "
+            narrative_ind += "; ".join(cat_perf_lines) + "."
+        st.markdown(narrative_ind)
 
     # ----------------- TAB 5: NOTES -----------------
     with tab5:
