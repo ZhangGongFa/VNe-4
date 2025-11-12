@@ -480,50 +480,73 @@ def render(feats_df: pd.DataFrame, raw_df: pd.DataFrame, ticker: str, year: int,
             "AdaBoost": min(max(pd_final * 1.15, 0.0), 1.0),
         }
         model_options = ["LightGBM", "XGBoost", "CatBoost", "AdaBoost"]
-        # Create tabs for each model; the active tab shows that model's gauge enlarged
-        tab_labels = [
-            (m + "*" if m == "LightGBM" else m) for m in model_options
-        ]
-        tabs_models = st.tabs(tab_labels)
-        for tab, selected_model in zip(tabs_models, model_options):
-            with tab:
-                # Determine the ordering: selected model first, others after
-                ordered_models = [selected_model] + [m for m in model_options if m != selected_model]
-                # Assign relative column widths: larger for selected model
-                subcols = st.columns([2, 1, 1, 1])
-                heights = [250, 180, 180, 180]
-                for _col, _name, _ht in zip(subcols, ordered_models, heights):
-                    with _col:
-                        pd_val = model_pd[_name]
-                        # Highlight the best model (LightGBM) with a darker bar colour
-                        bar_color = '#1f77b4' if _name == 'LightGBM' else '#7db9e8'
-                        fig_pd = go.Figure(go.Indicator(
-                            mode="gauge+number",
-                            value=pd_val * 100,
-                            number={'suffix': "%"},
-                            gauge={
-                                'axis': {'range': [0, 100]},
-                                'bar': {'color': bar_color},
-                                'steps': [
-                                    {'range': [0, 20], 'color': '#E8F1FB'},
-                                    {'range': [20, 50], 'color': '#CFE3F7'},
-                                    {'range': [50, 100], 'color': '#F9E3E3'},
-                                ],
-                                'threshold': {'line': {'color': 'red', 'width': 2}, 'value': pd_val * 100},
-                            },
-                            title={'text': _name + ("*" if _name == 'LightGBM' else "")},
-                        ))
-                        fig_pd.update_layout(height=_ht, margin=dict(l=10, r=10, t=10, b=10))
-                        st.plotly_chart(fig_pd, use_container_width=True)
-                # Display model performance ranking once per tab for context
-                if lang == 'vi':
-                    st.markdown(
-                        "**Thứ hạng mô hình (F1-Score):** LightGBM* (94.8%), XGBoost (91.0%), CatBoost (89.9%), AdaBoost (78.6%)",
-                    )
-                else:
-                    st.markdown(
-                        "**Model ranking (F1-Score):** LightGBM* (94.8%), XGBoost (91.0%), CatBoost (89.9%), AdaBoost (78.6%)",
-                    )
+        # Provide a selector for users to switch models. Using a selectbox gives a cleaner look than a radio.
+        # The selected model drives the primary gauge; other models are shown as mini gauges for comparison.
+        selected_model = st.selectbox(
+            get_text("pd_model_selection", lang),
+            options=model_options,
+            format_func=lambda m: m + ("*" if m == "LightGBM" else "")
+        )
+        # Transition animation duration for gauge updates
+        transition_opts = {'duration': 600, 'easing': 'cubic-in-out'}
+        # Build columns: one large gauge on the left, three small gauges on the right stacked vertically
+        left_col, right_col = st.columns([2, 1])
+        with left_col:
+            # Primary gauge for selected model
+            pd_val = model_pd[selected_model]
+            bar_color = '#1f77b4' if selected_model == 'LightGBM' else '#7db9e8'
+            fig_primary = go.Figure(go.Indicator(
+                mode="gauge+number",
+                value=pd_val * 100,
+                number={'suffix': "%"},
+                gauge={
+                    'axis': {'range': [0, 100]},
+                    'bar': {'color': bar_color},
+                    'steps': [
+                        {'range': [0, 20], 'color': '#E8F1FB'},
+                        {'range': [20, 50], 'color': '#CFE3F7'},
+                        {'range': [50, 100], 'color': '#F9E3E3'},
+                    ],
+                    'threshold': {'line': {'color': 'red', 'width': 2}, 'value': pd_val * 100},
+                },
+                title={'text': selected_model + ("*" if selected_model == 'LightGBM' else "")},
+            ))
+            fig_primary.update_layout(height=260, margin=dict(l=10, r=10, t=10, b=10), transition=transition_opts)
+            # Assign a persistent key so the gauge updates with animation when selection changes
+            st.plotly_chart(fig_primary, use_container_width=True, key="pd_gauge_primary")
+        with right_col:
+            # Display small gauges for the other models beneath each other
+            other_models = [m for m in model_options if m != selected_model]
+            for idx, _name in enumerate(other_models):
+                pd_val_other = model_pd[_name]
+                bar_color_other = '#1f77b4' if _name == 'LightGBM' else '#7db9e8'
+                fig_small = go.Figure(go.Indicator(
+                    mode="gauge+number",
+                    value=pd_val_other * 100,
+                    number={'suffix': "%"},
+                    gauge={
+                        'axis': {'range': [0, 100]},
+                        'bar': {'color': bar_color_other},
+                        'steps': [
+                            {'range': [0, 20], 'color': '#E8F1FB'},
+                            {'range': [20, 50], 'color': '#CFE3F7'},
+                            {'range': [50, 100], 'color': '#F9E3E3'},
+                        ],
+                        'threshold': {'line': {'color': 'red', 'width': 1}, 'value': pd_val_other * 100},
+                    },
+                    title={'text': _name + ("*" if _name == 'LightGBM' else "")},
+                ))
+                fig_small.update_layout(height=110, margin=dict(l=10, r=10, t=10, b=10), transition=transition_opts)
+                st.plotly_chart(fig_small, use_container_width=True, key=f"pd_gauge_{_name}")
+        # Display model performance ranking for context
+        if lang == 'vi':
+            st.markdown(
+                "**Thứ hạng mô hình (F1-Score):** LightGBM* (94.8%), XGBoost (91.0%), CatBoost (89.9%), AdaBoost (78.6%)",
+            )
+        else:
+            st.markdown(
+                "**Model ranking (F1-Score):** LightGBM* (94.8%), XGBoost (91.0%), CatBoost (89.9%), AdaBoost (78.6%)",
+            )
     # ------------------------------------------------------------------
     # Section C: Model Explainability (SHAP)
     st.subheader("C. Model Explainability (SHAP)")
