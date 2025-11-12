@@ -247,11 +247,6 @@ TEXTS = {
         LANG_VI: "Sàn Giao Dịch",
         LANG_EN: "Exchange"
     },
-    # Prompt text for selecting which model PD gauge to display
-    "pd_model_selection": {
-        LANG_VI: "Chọn mô hình",
-        LANG_EN: "Select model"
-    },
     "summary_section_shap": {
         LANG_VI: "C. Giải Thích Mô Hình (SHAP)",
         LANG_EN: "C. Model Explainability (SHAP)"
@@ -264,11 +259,6 @@ TEXTS = {
         LANG_VI: "Giá trị SHAP → PD",
         LANG_EN: "SHAP value → PD"
     },
-    # X‑axis title for SHAP chart when using percentage contributions
-    "shap_xaxis_percentage_title": {
-        LANG_VI: "Đóng góp (%) đến PD",
-        LANG_EN: "Contribution to PD (%)"
-    },
     "shap_info_not_avail": {
         LANG_VI: "SHAP không khả dụng cho mô hình/đầu vào này.",
         LANG_EN: "SHAP is not available for this model/input."
@@ -276,33 +266,6 @@ TEXTS = {
     "shap_info_unrecog": {
         LANG_VI: "Đầu ra SHAP được phát hiện nhưng các cột không thể nhận dạng.",
         LANG_EN: "SHAP output detected but columns are not recognizable."
-    },
-    # Tooltip text for SHAP contributions
-    "shap_contribution_increase": {
-        LANG_VI: "Giá trị cao hơn làm tăng rủi ro",
-        LANG_EN: "Higher values increase risk"
-    },
-    "shap_contribution_decrease": {
-        LANG_VI: "Giá trị cao hơn làm giảm rủi ro",
-        LANG_EN: "Higher values reduce risk"
-    },
-    # Expander label for showing more SHAP features
-    "shap_more_features": {
-        LANG_VI: "Xem thêm đặc trưng",
-        LANG_EN: "Show more features"
-    },
-    # Tooltips for risk categories in risk table
-    "risk_tooltip_low": {
-        LANG_VI: "Rủi ro thấp – tiếp tục theo dõi",
-        LANG_EN: "Low risk – continue monitoring"
-    },
-    "risk_tooltip_medium": {
-        LANG_VI: "Rủi ro trung bình – theo dõi và đánh giá",
-        LANG_EN: "Medium risk – monitor and evaluate"
-    },
-    "risk_tooltip_high": {
-        LANG_VI: "Rủi ro cao – cần hành động",
-        LANG_EN: "High risk – action recommended"
     },
     "summary_section_stress": {
         LANG_VI: "D. Kiểm Tra Sức Chịu Đựng — Tác Động Ngành & Hệ Thống",

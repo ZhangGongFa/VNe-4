@@ -470,9 +470,9 @@ def render(feats_df: pd.DataFrame, raw_df: pd.DataFrame, ticker: str, year: int,
             """,
             unsafe_allow_html=True,
         )
-    # Right column: Interactive gauge charts for multiple models
+    # Right column: Interactive carousel of PD gauges for multiple models
     with col_pd2:
-        # Define PD values for each model. Since only the LightGBM model is available, other models are approximated.
+        # Define PD values for each model: approximate other models based on LightGBM result
         model_pd = {
             "LightGBM": pd_final,
             "XGBoost": min(max(pd_final * 1.05, 0.0), 1.0),
@@ -480,63 +480,82 @@ def render(feats_df: pd.DataFrame, raw_df: pd.DataFrame, ticker: str, year: int,
             "AdaBoost": min(max(pd_final * 1.15, 0.0), 1.0),
         }
         model_options = ["LightGBM", "XGBoost", "CatBoost", "AdaBoost"]
-        # ------------------------------------------------------------------
-        # Interactive carousel for PD models
-        # ------------------------------------------------------------------
-        # Maintain the currently selected model index in session state
+        # Initialize or update session state index for selected model
         if 'pd_model_idx' not in st.session_state:
             st.session_state['pd_model_idx'] = 0
-        # Define helper to rotate index when arrow buttons are clicked
         total_models = len(model_options)
-        # Layout for left arrow, empty spacer, right arrow
+        # Arrow controls to rotate carousel
         arrow_cols = st.columns([1, 6, 1])
         with arrow_cols[0]:
-            if st.button("◀", key="pd_carousel_left"):
+            if st.button("◀", key="pd_carousel_left_btn"):
                 st.session_state['pd_model_idx'] = (st.session_state['pd_model_idx'] - 1) % total_models
         with arrow_cols[2]:
-            if st.button("▶", key="pd_carousel_right"):
+            if st.button("▶", key="pd_carousel_right_btn"):
                 st.session_state['pd_model_idx'] = (st.session_state['pd_model_idx'] + 1) % total_models
-        # Determine indices for previous, current (selected) and next models
+        # Determine indices for previous, selected, next and behind models
         sel_idx = st.session_state['pd_model_idx']
         prev_idx = (sel_idx - 1) % total_models
         next_idx = (sel_idx + 1) % total_models
-        # Determine names
+        behind_idx = (sel_idx + 2) % total_models
         selected_model = model_options[sel_idx]
         prev_model = model_options[prev_idx]
         next_model = model_options[next_idx]
-        # Animation configuration
+        behind_model = model_options[behind_idx]
+        # Define transition for smooth animation
         transition_opts = {'duration': 600, 'easing': 'cubic-in-out'}
-        # Display gauges in a carousel arrangement
-        gauge_cols = st.columns([1.5, 3, 1.5])
-        # Left (previous) gauge – dimmed
-        with gauge_cols[0]:
-            pd_val_prev = model_pd[prev_model]
-            bar_color_prev = '#bcd3ee'  # lighter color for secondary models
-            fig_prev = go.Figure(go.Indicator(
+        # Top row: behind gauge (small and dim)
+        top_cols = st.columns([1, 4, 1])
+        with top_cols[1]:
+            pd_val_behind = model_pd[behind_model] * 100
+            bar_color_beh = '#dbeafe'
+            fig_beh = go.Figure(go.Indicator(
                 mode="gauge+number",
-                value=pd_val_prev * 100,
+                value=pd_val_behind,
                 number={'suffix': "%"},
                 gauge={
                     'axis': {'range': [0, 100]},
-                    'bar': {'color': bar_color_prev},
+                    'bar': {'color': bar_color_beh},
+                    'steps': [
+                        {'range': [0, 20], 'color': '#F0F9FF'},
+                        {'range': [20, 50], 'color': '#E0F2FE'},
+                        {'range': [50, 100], 'color': '#FCE7F3'},
+                    ],
+                    'threshold': {'line': {'color': 'red', 'width': 1}, 'value': pd_val_behind},
+                },
+                title={'text': behind_model + ("*" if behind_model == 'LightGBM' else "")},
+            ))
+            fig_beh.update_layout(height=120, margin=dict(l=10, r=10, t=10, b=10), transition=transition_opts)
+            st.plotly_chart(fig_beh, use_container_width=True, key="pd_beh")
+        # Bottom row: previous, selected and next gauges
+        gauge_cols = st.columns([1.5, 3, 1.5])
+        # Previous gauge
+        with gauge_cols[0]:
+            pd_val_prev = model_pd[prev_model] * 100
+            fig_prev = go.Figure(go.Indicator(
+                mode="gauge+number",
+                value=pd_val_prev,
+                number={'suffix': "%"},
+                gauge={
+                    'axis': {'range': [0, 100]},
+                    'bar': {'color': '#cfe3f7'},
                     'steps': [
                         {'range': [0, 20], 'color': '#E8F1FB'},
                         {'range': [20, 50], 'color': '#CFE3F7'},
                         {'range': [50, 100], 'color': '#F9E3E3'},
                     ],
-                    'threshold': {'line': {'color': 'red', 'width': 1}, 'value': pd_val_prev * 100},
+                    'threshold': {'line': {'color': 'red', 'width': 1}, 'value': pd_val_prev},
                 },
                 title={'text': prev_model + ("*" if prev_model == 'LightGBM' else "")},
             ))
             fig_prev.update_layout(height=160, margin=dict(l=10, r=10, t=10, b=10), transition=transition_opts)
-            st.plotly_chart(fig_prev, use_container_width=True, key="pd_carousel_prev")
-        # Centre (selected) gauge – highlighted
+            st.plotly_chart(fig_prev, use_container_width=True, key="pd_prev")
+        # Selected gauge
         with gauge_cols[1]:
-            pd_val_sel = model_pd[selected_model]
+            pd_val_sel = model_pd[selected_model] * 100
             bar_color_sel = '#1f77b4' if selected_model == 'LightGBM' else '#7db9e8'
             fig_sel = go.Figure(go.Indicator(
                 mode="gauge+number",
-                value=pd_val_sel * 100,
+                value=pd_val_sel,
                 number={'suffix': "%"},
                 gauge={
                     'axis': {'range': [0, 100]},
@@ -546,43 +565,38 @@ def render(feats_df: pd.DataFrame, raw_df: pd.DataFrame, ticker: str, year: int,
                         {'range': [20, 50], 'color': '#CFE3F7'},
                         {'range': [50, 100], 'color': '#F9E3E3'},
                     ],
-                    'threshold': {'line': {'color': 'red', 'width': 2}, 'value': pd_val_sel * 100},
+                    'threshold': {'line': {'color': 'red', 'width': 2}, 'value': pd_val_sel},
                 },
                 title={'text': selected_model + ("*" if selected_model == 'LightGBM' else "")},
             ))
             fig_sel.update_layout(height=260, margin=dict(l=10, r=10, t=10, b=10), transition=transition_opts)
-            st.plotly_chart(fig_sel, use_container_width=True, key="pd_carousel_selected")
-        # Right (next) gauge – dimmed
+            st.plotly_chart(fig_sel, use_container_width=True, key="pd_sel")
+        # Next gauge
         with gauge_cols[2]:
-            pd_val_next = model_pd[next_model]
-            bar_color_next = '#bcd3ee'
+            pd_val_next = model_pd[next_model] * 100
             fig_next = go.Figure(go.Indicator(
                 mode="gauge+number",
-                value=pd_val_next * 100,
+                value=pd_val_next,
                 number={'suffix': "%"},
                 gauge={
                     'axis': {'range': [0, 100]},
-                    'bar': {'color': bar_color_next},
+                    'bar': {'color': '#cfe3f7'},
                     'steps': [
                         {'range': [0, 20], 'color': '#E8F1FB'},
                         {'range': [20, 50], 'color': '#CFE3F7'},
                         {'range': [50, 100], 'color': '#F9E3E3'},
                     ],
-                    'threshold': {'line': {'color': 'red', 'width': 1}, 'value': pd_val_next * 100},
+                    'threshold': {'line': {'color': 'red', 'width': 1}, 'value': pd_val_next},
                 },
                 title={'text': next_model + ("*" if next_model == 'LightGBM' else "")},
             ))
             fig_next.update_layout(height=160, margin=dict(l=10, r=10, t=10, b=10), transition=transition_opts)
-            st.plotly_chart(fig_next, use_container_width=True, key="pd_carousel_next")
-        # Show model performance ranking below carousel
+            st.plotly_chart(fig_next, use_container_width=True, key="pd_next")
+        # Display model ranking below the carousel
         if lang == 'vi':
-            st.markdown(
-                "**Thứ hạng mô hình (F1-Score):** LightGBM* (94.8%), XGBoost (91.0%), CatBoost (89.9%), AdaBoost (78.6%)",
-            )
+            st.markdown("**Thứ hạng mô hình (F1-Score):** LightGBM* (94.8%), XGBoost (91.0%), CatBoost (89.9%), AdaBoost (78.6%)")
         else:
-            st.markdown(
-                "**Model ranking (F1-Score):** LightGBM* (94.8%), XGBoost (91.0%), CatBoost (89.9%), AdaBoost (78.6%)",
-            )
+            st.markdown("**Model ranking (F1-Score):** LightGBM* (94.8%), XGBoost (91.0%), CatBoost (89.9%), AdaBoost (78.6%)")
     # ------------------------------------------------------------------
     # Section C: Model Explainability (SHAP)
     st.subheader("C. Model Explainability (SHAP)")
@@ -595,8 +609,7 @@ def render(feats_df: pd.DataFrame, raw_df: pd.DataFrame, ticker: str, year: int,
     X_shap = pd.DataFrame([{f: float(row_model.get(f, 0.0)) for f in shap_feats}], columns=shap_feats)
     shap_raw = None
     try:
-        # Retrieve more features for SHAP explanation to cover all main financial indicators (18–20 features)
-        shap_raw = explain_shap(model, X_shap, top_n=20)
+        shap_raw = explain_shap(model, X_shap, top_n=10)
     except Exception:
         shap_raw = None
     # Flag to indicate whether fallback importance should be used
@@ -623,7 +636,7 @@ def render(feats_df: pd.DataFrame, raw_df: pd.DataFrame, ticker: str, year: int,
             imp_df = pd.DataFrame()
     # Display SHAP chart if available
     if shap_raw is not None and not (hasattr(shap_raw, 'empty') and shap_raw.empty):
-        # Convert shap_raw into a DataFrame if necessary
+        # Convert shap_raw into a DataFrame if necessary and select the first two columns
         if isinstance(shap_raw, pd.Series):
             shap_df = shap_raw.reset_index()
         elif isinstance(shap_raw, (list, tuple, np.ndarray)):
@@ -645,101 +658,25 @@ def render(feats_df: pd.DataFrame, raw_df: pd.DataFrame, ticker: str, year: int,
             if shap_df.empty:
                 st.info(get_text("shap_info_not_avail", lang))
             else:
-                # Compute absolute SHAP values and sort by importance
                 shap_df["absSHAP"] = shap_df["SHAP"].abs()
-                # Keep top 20 features by absolute value
-                shap_df = shap_df.sort_values("absSHAP", ascending=True).tail(20)
-                # Map each financial indicator to a monotonic sign. Positive (+1) means higher values increase PD; negative (-1) means higher values reduce PD.
-                orientation_map = {
-                    "Current_Ratio": -1,
-                    "Quick_Ratio": -1,
-                    "Working_Capital_to_Total_Assets": -1,
-                    "Debt_to_Assets": +1,
-                    "Debt_to_Equity": +1,
-                    "Equity_to_Liabilities": -1,
-                    "Long_Term_Debt_to_Assets": +1,
-                    "Receivables_Turnover": -1,
-                    "Inventory_Turnover": -1,
-                    "Asset_Turnover": -1,
-                    "ROA": -1,
-                    "ROE": -1,
-                    "EBIT_to_Assets": -1,
-                    "Operating_Income_to_Debt": -1,
-                    "Net_Profit_Margin": -1,
-                    "Gross_Margin": -1,
-                    "Interest_Coverage": -1,
-                    "EBITDA_to_Interest": -1,
-                    "Total_Debt_to_EBITDA": +1
-                }
-                # Append sign annotation to feature names if a monotonic direction is known
-                def _sign_label(feat: str) -> str:
-                    sign = orientation_map.get(feat)
-                    if sign is None:
-                        return str(feat)
-                    return f"{feat} (+)" if sign > 0 else f"{feat} (-)"
-                shap_df["FeatureLabel"] = shap_df["Feature"].apply(_sign_label)
-                # Compute percentage contribution to PD (with sign)
-                total_abs = shap_df["absSHAP"].sum()
-                shap_df["Contribution"] = shap_df.apply(lambda row: (row["SHAP"] / total_abs) * 100 if total_abs != 0 else 0.0, axis=1)
-                # Prepare helper strings for hover text; fallback to English if keys not present
-                try:
-                    inc_text = get_text("shap_contribution_increase", lang)
-                    dec_text = get_text("shap_contribution_decrease", lang)
-                except Exception:
-                    inc_text = "Higher values increase risk"
-                    dec_text = "Higher values reduce risk"
-                # Display top 10 features in main chart
-                top_df = shap_df.sort_values("absSHAP", ascending=True).tail(10).copy()
-                top_colors = ["#E24A33" if v < 0 else "#1F77B4" for v in top_df["Contribution"]]
-                hover_texts = []
-                for _, row in top_df.iterrows():
-                    orient = orientation_map.get(row["Feature"], None)
-                    orient_msg = inc_text if orient == 1 else (dec_text if orient == -1 else "")
-                    hover_texts.append(f"{row['Feature']}: {row['Contribution']:+.2f}%<br>{orient_msg}")
+                shap_df = shap_df.sort_values("absSHAP", ascending=True).tail(10)
+                colors = ["#E24A33" if v < 0 else "#1F77B4" for v in shap_df["SHAP"]]
                 fig_sh = go.Figure()
                 fig_sh.add_trace(go.Bar(
-                    x=top_df["Contribution"],
-                    y=top_df["FeatureLabel"],
+                    x=shap_df["SHAP"],
+                    y=shap_df["Feature"].astype(str),
                     orientation="h",
-                    marker_color=top_colors,
-                    text=[f"{v:+.2f}%" for v in top_df["Contribution"]],
+                    marker_color=colors,
+                    text=[f"{v:+.3f}" for v in shap_df["SHAP"]],
                     textposition="outside",
-                    hovertemplate=hover_texts,
                 ))
                 fig_sh.update_layout(
                     title=get_text("shap_chart_title", lang),
-                    xaxis=dict(title=get_text("shap_xaxis_percentage_title", lang)),
+                    xaxis=dict(title=get_text("shap_xaxis_title", lang)),
                     height=420,
                     margin=dict(l=10, r=20, t=40, b=10),
                 )
                 st.plotly_chart(fig_sh, use_container_width=True)
-                # Additional features displayed in an expander
-                if shap_df.shape[0] > 10:
-                    with st.expander(get_text("shap_more_features", lang)):
-                        more_df = shap_df.sort_values("absSHAP", ascending=False).copy()
-                        more_colors = ["#E24A33" if v < 0 else "#1F77B4" for v in more_df["Contribution"]]
-                        hover_more = []
-                        for _, row in more_df.iterrows():
-                            orient = orientation_map.get(row["Feature"], None)
-                            orient_msg = inc_text if orient == 1 else (dec_text if orient == -1 else "")
-                            hover_more.append(f"{row['Feature']}: {row['Contribution']:+.2f}%<br>{orient_msg}")
-                        fig_more = go.Figure()
-                        fig_more.add_trace(go.Bar(
-                            x=more_df["Contribution"],
-                            y=more_df["FeatureLabel"],
-                            orientation="h",
-                            marker_color=more_colors,
-                            text=[f"{v:+.2f}%" for v in more_df["Contribution"]],
-                            textposition="outside",
-                            hovertemplate=hover_more,
-                        ))
-                        fig_more.update_layout(
-                            title=get_text("shap_chart_title", lang),
-                            xaxis=dict(title=get_text("shap_xaxis_percentage_title", lang)),
-                            height=500,
-                            margin=dict(l=10, r=20, t=40, b=10),
-                        )
-                        st.plotly_chart(fig_more, use_container_width=True)
     elif show_fallback and not imp_df.empty:
         # Render fallback importance chart
         imp_df = imp_df.copy()
@@ -906,48 +843,18 @@ def render(feats_df: pd.DataFrame, raw_df: pd.DataFrame, ticker: str, year: int,
         {"Metric": "ROA", "Value": _fmt_ratio(roa), "Category": _risk_category(roa, 0.0, 0.05, invert=False)},
     ]
     df_risk = pd.DataFrame(risk_data)
-    # Translate category labels and assign colours for badge styling
-    category_map = {
-        "Low": {"label": ("Thấp" if lang == 'vi' else "Low"), "color": "#34D399"},
-        "Medium": {"label": ("Trung Bình" if lang == 'vi' else "Medium"), "color": "#FBBF24"},
-        "High": {"label": ("Cao" if lang == 'vi' else "High"), "color": "#F87171"},
-        "-": {"label": "-", "color": "#D1D5DB"}
-    }
-    # Localize column header names
-    metric_col = "Chỉ số" if lang == 'vi' else "Metric"
-    value_col = "Giá trị" if lang == 'vi' else "Value"
-    category_col = "Mức độ" if lang == 'vi' else "Category"
-    # Build HTML table with coloured badges and tooltips
-    table_rows = []
-    for item in risk_data:
-        cat_info = category_map.get(item["Category"], category_map.get("-"))
-        # Tooltip messages for risk categories
-        if item["Category"] == "Low":
-            tooltip = get_text("risk_tooltip_low", lang)
-        elif item["Category"] == "Medium":
-            tooltip = get_text("risk_tooltip_medium", lang)
-        elif item["Category"] == "High":
-            tooltip = get_text("risk_tooltip_high", lang)
-        else:
-            tooltip = ""
-        badge = f"<span style='background:{cat_info['color']};color:white;padding:3px 8px;border-radius:4px;' title='{tooltip}'>{cat_info['label']}</span>"
-        table_rows.append(
-            f"<tr>"
-            f"<td style='padding:6px 12px;border-bottom:1px solid #e5e7eb;'>{item['Metric']}</td>"
-            f"<td style='padding:6px 12px;border-bottom:1px solid #e5e7eb;text-align:right;'>{item['Value']}</td>"
-            f"<td style='padding:6px 12px;border-bottom:1px solid #e5e7eb;text-align:center;'>{badge}</td>"
-            f"</tr>"
-        )
-    table_html = (
-        f"<table style='width:100%;border-collapse:collapse;font-size:14px;'>"
-        f"<thead><tr>"
-        f"<th style='text-align:left;padding:6px 12px;border-bottom:2px solid #e5e7eb;'>{metric_col}</th>"
-        f"<th style='text-align:right;padding:6px 12px;border-bottom:2px solid #e5e7eb;'>{value_col}</th>"
-        f"<th style='text-align:center;padding:6px 12px;border-bottom:2px solid #e5e7eb;'>{category_col}</th>"
-        f"</tr></thead>"
-        f"<tbody>{''.join(table_rows)}</tbody></table>"
-    )
-    st.markdown(table_html, unsafe_allow_html=True)
+    # Translate category labels
+    category_map = {"Low": ("Thấp" if lang == 'vi' else "Low"),
+                    "Medium": ("Trung Bình" if lang == 'vi' else "Medium"),
+                    "High": ("Cao" if lang == 'vi' else "High"),
+                    "-": "-"}
+    df_risk["Category"] = df_risk["Category"].map(category_map)
+    # Localize DataFrame column names
+    if lang == 'vi':
+        df_risk = df_risk.rename(columns={"Metric": "Chỉ số", "Value": "Giá trị", "Category": "Mức độ"})
+    else:
+        df_risk = df_risk.rename(columns={"Metric": "Metric", "Value": "Value", "Category": "Category"})
+    st.dataframe(df_risk, use_container_width=True, hide_index=True)
     # Generate dynamic risk notes based on metrics
     risk_notes_vi = []
     risk_notes_en = []

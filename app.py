@@ -215,86 +215,35 @@ with st.sidebar:
     
     st.markdown("---")
     st.header(get_text("sidebar_report_header", st.session_state.current_lang))
-
+    
     # Initialize session state for report selection
     if 'report_tab' not in st.session_state:
         st.session_state.report_tab = "Summary"
-
-    # Create vertical buttons for report selection. Each button spans full width to prevent text wrapping.
-    if st.button(get_text("btn_finance", st.session_state.current_lang), key="btn_financial", use_container_width=True):
-        st.session_state.report_tab = "Finance"
-    if st.button(get_text("btn_sentiment", st.session_state.current_lang), key="btn_sentiment", use_container_width=True):
-        st.session_state.report_tab = "Sentiment"
-    if st.button(get_text("btn_summary", st.session_state.current_lang), key="btn_summary", use_container_width=True):
-        st.session_state.report_tab = "Summary"
-
+    
+    # Create button columns for report selection
+    col1, col2, col3 = st.columns(3)
+    
+    with col1:
+        if st.button(get_text("btn_finance", st.session_state.current_lang), key="btn_financial", use_container_width=True):
+            st.session_state.report_tab = "Finance"
+    
+    with col2:
+        if st.button(get_text("btn_sentiment", st.session_state.current_lang), key="btn_sentiment", use_container_width=True):
+            st.session_state.report_tab = "Sentiment"
+    
+    with col3:
+        if st.button(get_text("btn_summary", st.session_state.current_lang), key="btn_summary", use_container_width=True):
+            st.session_state.report_tab = "Summary"
+    
     st.markdown("---")
-
-    # Display a brief company summary below the report selection. This replaces the generic description box.
-    # Attempt to extract key figures (exchange, sector, total assets, equity and total debt) for the selected ticker/year.
-    row_raw_sm = raw_df[(raw_df["Ticker"].astype(str) == str(ticker)) & (raw_df["Year"] == year)]
-    row_raw_sm = row_raw_sm.iloc[0] if not row_raw_sm.empty else None
-    if row_raw_sm is not None:
-        # Helper to extract numeric values from a row given multiple column aliases
-        def _get_raw_info(col_names, default=np.nan):
-            for col in col_names:
-                if col in row_raw_sm.index and pd.notna(row_raw_sm[col]):
-                    x = row_raw_sm[col]
-                    try:
-                        # remove thousand separators if present
-                        if isinstance(x, str):
-                            x = x.replace(",", "")
-                        return float(x)
-                    except Exception:
-                        continue
-            return default
-        assets_sm = _get_raw_info(["TOTAL ASSETS (Bn. VND)", "Total_Assets"])
-        equity_sm = _get_raw_info(["OWNER'S EQUITY(Bn.VND)", "Equity"])
-        curr_liab_sm = _get_raw_info(["Current liabilities (Bn. VND)", "Current_Liabilities"], 0.0)
-        long_liab_sm = _get_raw_info(["Long-term liabilities (Bn. VND)", "Long_Term_Liabilities"], 0.0)
-        # Compute debt as sum of current and long-term liabilities unless an explicit Total_Debt column exists
-        debt_sm = (curr_liab_sm or 0.0) + (long_liab_sm or 0.0)
-        if "Total_Debt" in row_raw_sm.index and pd.notna(row_raw_sm.get("Total_Debt")):
-            try:
-                debt_sm = float(str(row_raw_sm.get("Total_Debt")).replace(",", ""))
-            except Exception:
-                pass
-        # Exchange and sector information
-        ex = (str(row_raw_sm.get("Exchange", "")) or "-").upper()
-        # Prefer raw sector if available; otherwise fall back to bucketised sector
-        sec_raw = str(row_raw_sm.get("Sector", "")).strip()
-        sec = sec_raw if sec_raw else "-"
-        # Format numeric values for display
-        assets_disp = fmt_money(assets_sm)
-        equity_disp = fmt_money(equity_sm)
-        debt_disp = fmt_money(debt_sm)
-        lang_cur = st.session_state.current_lang
-        # Build a styled card for the company profile. Each field is separated into its own line for better readability.
-        if lang_cur == LANG_VI:
-            card_html = f"""
-            <div style='background-color:#E8F1FB;border:1px solid #cbd5e1;border-radius:10px;padding:12px;margin-top:6px;'>
-              <div style='font-weight:600;font-size:15px;margin-bottom:6px;'>Hồ sơ doanh nghiệp</div>
-              <div><strong>Sàn:</strong> {ex}</div>
-              <div><strong>Ngành:</strong> {sec}</div>
-              <div><strong>Tổng tài sản:</strong> {assets_disp}</div>
-              <div><strong>Vốn chủ sở hữu:</strong> {equity_disp}</div>
-              <div><strong>Tổng nợ:</strong> {debt_disp}</div>
-            </div>
-            """
-        else:
-            card_html = f"""
-            <div style='background-color:#E8F1FB;border:1px solid #cbd5e1;border-radius:10px;padding:12px;margin-top:6px;'>
-              <div style='font-weight:600;font-size:15px;margin-bottom:6px;'>Company profile</div>
-              <div><strong>Exchange:</strong> {ex}</div>
-              <div><strong>Sector:</strong> {sec}</div>
-              <div><strong>Total assets:</strong> {assets_disp}</div>
-              <div><strong>Equity:</strong> {equity_disp}</div>
-              <div><strong>Total debt:</strong> {debt_disp}</div>
-            </div>
-            """
-        st.markdown(card_html, unsafe_allow_html=True)
-    else:
-        st.info(get_text("warning_no_data", st.session_state.current_lang))
+    
+    # Display description based on selection
+    if st.session_state.report_tab == "Finance":
+        st.info(get_text("desc_finance", st.session_state.current_lang))
+    elif st.session_state.report_tab == "Sentiment":
+        st.info(get_text("desc_sentiment", st.session_state.current_lang))
+    elif st.session_state.report_tab == "Summary":
+        st.info(get_text("desc_summary", st.session_state.current_lang))
 
 # ---------- Get selected data ----------
 row_model = feats_df[(feats_df["Ticker"].astype(str)==ticker) & (feats_df["Year"]==year)]

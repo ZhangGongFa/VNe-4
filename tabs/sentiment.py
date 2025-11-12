@@ -92,25 +92,11 @@ def render(feats_df: pd.DataFrame, raw_df: pd.DataFrame, ticker: str, year: int,
         subset = news_data[(news_data['Ticker'].astype(str)==str(ticker)) & (news_data['Year']==year)]
         # Sentiment distribution
         if not subset.empty:
-            # Normalize sentiment labels to canonical English categories then map to display labels.
-            # This ensures that even when the data uses Vietnamese labels, distribution is computed consistently.
-            mapping = {
-                'Rất Tích Cực': 'Very Positive',
-                'Tích Cực': 'Positive',
-                'Trung Lập': 'Neutral',
-                'Tiêu Cực': 'Negative',
-                'Rất Tiêu Cực': 'Very Negative',
-                'Very Positive': 'Very Positive',
-                'Positive': 'Positive',
-                'Neutral': 'Neutral',
-                'Negative': 'Negative',
-                'Very Negative': 'Very Negative'
-            }
-            subset_canonical = subset['Sentiment_Label'].map(mapping).fillna(subset['Sentiment_Label'])
-            label_counts = subset_canonical.value_counts().to_dict()
-            canonical_order = ['Very Positive','Positive','Neutral','Negative','Very Negative']
-            counts = [label_counts.get(l, 0) for l in canonical_order]
-            labels_display = canonical_order if lang != 'vi' else ['Rất Tích Cực','Tích Cực','Trung Lập','Tiêu Cực','Rất Tiêu Cực']
+            label_counts = subset['Sentiment_Label'].value_counts().to_dict()
+            all_labels_vi = ['Rất Tích Cực','Tích Cực','Trung Lập','Tiêu Cực','Rất Tiêu Cực']
+            all_labels_en = ['Very Positive','Positive','Neutral','Negative','Very Negative']
+            labels_display = all_labels_vi if lang=='vi' else all_labels_en
+            counts = [label_counts.get(l, 0) for l in labels_display]
             fig_pie = go.Figure(data=[go.Pie(
                 labels=labels_display,
                 values=counts,
