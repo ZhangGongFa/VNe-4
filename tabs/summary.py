@@ -623,7 +623,7 @@ def render(feats_df: pd.DataFrame, raw_df: pd.DataFrame, ticker: str, year: int,
             imp_df = pd.DataFrame()
     # Display SHAP chart if available
     if shap_raw is not None and not (hasattr(shap_raw, 'empty') and shap_raw.empty):
-        # Convert shap_raw into a DataFrame if necessary and select the first two columns
+        # Convert shap_raw into a DataFrame if necessary
         if isinstance(shap_raw, pd.Series):
             shap_df = shap_raw.reset_index()
         elif isinstance(shap_raw, (list, tuple, np.ndarray)):
@@ -645,8 +645,10 @@ def render(feats_df: pd.DataFrame, raw_df: pd.DataFrame, ticker: str, year: int,
             if shap_df.empty:
                 st.info(get_text("shap_info_not_avail", lang))
             else:
+                # Compute absolute SHAP values and sort by importance
                 shap_df["absSHAP"] = shap_df["SHAP"].abs()
-                shap_df = shap_df.sort_values("absSHAP", ascending=True).tail(10)
+                # Keep top 20 features by absolute value
+                shap_df = shap_df.sort_values("absSHAP", ascending=True).tail(20)
                 # Map each financial indicator to a monotonic sign. Positive (+1) means higher values increase PD; negative (-1) means higher values reduce PD.
                 orientation_map = {
                     "Current_Ratio": -1,
@@ -676,24 +678,68 @@ def render(feats_df: pd.DataFrame, raw_df: pd.DataFrame, ticker: str, year: int,
                         return str(feat)
                     return f"{feat} (+)" if sign > 0 else f"{feat} (-)"
                 shap_df["FeatureLabel"] = shap_df["Feature"].apply(_sign_label)
-                # Determine bar colours based on SHAP sign: red for risk-increasing contribution, blue for risk-reducing
-                colors = ["#E24A33" if v < 0 else "#1F77B4" for v in shap_df["SHAP"]]
+                # Compute percentage contribution to PD (with sign)
+                total_abs = shap_df["absSHAP"].sum()
+                shap_df["Contribution"] = shap_df.apply(lambda row: (row["SHAP"] / total_abs) * 100 if total_abs != 0 else 0.0, axis=1)
+                # Prepare helper strings for hover text; fallback to English if keys not present
+                try:
+                    inc_text = get_text("shap_contribution_increase", lang)
+                    dec_text = get_text("shap_contribution_decrease", lang)
+                except Exception:
+                    inc_text = "Higher values increase risk"
+                    dec_text = "Higher values reduce risk"
+                # Display top 10 features in main chart
+                top_df = shap_df.sort_values("absSHAP", ascending=True).tail(10).copy()
+                top_colors = ["#E24A33" if v < 0 else "#1F77B4" for v in top_df["Contribution"]]
+                hover_texts = []
+                for _, row in top_df.iterrows():
+                    orient = orientation_map.get(row["Feature"], None)
+                    orient_msg = inc_text if orient == 1 else (dec_text if orient == -1 else "")
+                    hover_texts.append(f"{row['Feature']}: {row['Contribution']:+.2f}%<br>{orient_msg}")
                 fig_sh = go.Figure()
                 fig_sh.add_trace(go.Bar(
-                    x=shap_df["SHAP"],
-                    y=shap_df["FeatureLabel"],
+                    x=top_df["Contribution"],
+                    y=top_df["FeatureLabel"],
                     orientation="h",
-                    marker_color=colors,
-                    text=[f"{v:+.3f}" for v in shap_df["SHAP"]],
+                    marker_color=top_colors,
+                    text=[f"{v:+.2f}%" for v in top_df["Contribution"]],
                     textposition="outside",
+                    hovertemplate=hover_texts,
                 ))
                 fig_sh.update_layout(
                     title=get_text("shap_chart_title", lang),
-                    xaxis=dict(title=get_text("shap_xaxis_title", lang)),
+                    xaxis=dict(title=get_text("shap_xaxis_percentage_title", lang)),
                     height=420,
                     margin=dict(l=10, r=20, t=40, b=10),
                 )
                 st.plotly_chart(fig_sh, use_container_width=True)
+                # Additional features displayed in an expander
+                if shap_df.shape[0] > 10:
+                    with st.expander(get_text("shap_more_features", lang)):
+                        more_df = shap_df.sort_values("absSHAP", ascending=False).copy()
+                        more_colors = ["#E24A33" if v < 0 else "#1F77B4" for v in more_df["Contribution"]]
+                        hover_more = []
+                        for _, row in more_df.iterrows():
+                            orient = orientation_map.get(row["Feature"], None)
+                            orient_msg = inc_text if orient == 1 else (dec_text if orient == -1 else "")
+                            hover_more.append(f"{row['Feature']}: {row['Contribution']:+.2f}%<br>{orient_msg}")
+                        fig_more = go.Figure()
+                        fig_more.add_trace(go.Bar(
+                            x=more_df["Contribution"],
+                            y=more_df["FeatureLabel"],
+                            orientation="h",
+                            marker_color=more_colors,
+                            text=[f"{v:+.2f}%" for v in more_df["Contribution"]],
+                            textposition="outside",
+                            hovertemplate=hover_more,
+                        ))
+                        fig_more.update_layout(
+                            title=get_text("shap_chart_title", lang),
+                            xaxis=dict(title=get_text("shap_xaxis_percentage_title", lang)),
+                            height=500,
+                            margin=dict(l=10, r=20, t=40, b=10),
+                        )
+                        st.plotly_chart(fig_more, use_container_width=True)
     elif show_fallback and not imp_df.empty:
         # Render fallback importance chart
         imp_df = imp_df.copy()
@@ -860,18 +906,48 @@ def render(feats_df: pd.DataFrame, raw_df: pd.DataFrame, ticker: str, year: int,
         {"Metric": "ROA", "Value": _fmt_ratio(roa), "Category": _risk_category(roa, 0.0, 0.05, invert=False)},
     ]
     df_risk = pd.DataFrame(risk_data)
-    # Translate category labels
-    category_map = {"Low": ("Thấp" if lang == 'vi' else "Low"),
-                    "Medium": ("Trung Bình" if lang == 'vi' else "Medium"),
-                    "High": ("Cao" if lang == 'vi' else "High"),
-                    "-": "-"}
-    df_risk["Category"] = df_risk["Category"].map(category_map)
-    # Localize DataFrame column names
-    if lang == 'vi':
-        df_risk = df_risk.rename(columns={"Metric": "Chỉ số", "Value": "Giá trị", "Category": "Mức độ"})
-    else:
-        df_risk = df_risk.rename(columns={"Metric": "Metric", "Value": "Value", "Category": "Category"})
-    st.dataframe(df_risk, use_container_width=True, hide_index=True)
+    # Translate category labels and assign colours for badge styling
+    category_map = {
+        "Low": {"label": ("Thấp" if lang == 'vi' else "Low"), "color": "#34D399"},
+        "Medium": {"label": ("Trung Bình" if lang == 'vi' else "Medium"), "color": "#FBBF24"},
+        "High": {"label": ("Cao" if lang == 'vi' else "High"), "color": "#F87171"},
+        "-": {"label": "-", "color": "#D1D5DB"}
+    }
+    # Localize column header names
+    metric_col = "Chỉ số" if lang == 'vi' else "Metric"
+    value_col = "Giá trị" if lang == 'vi' else "Value"
+    category_col = "Mức độ" if lang == 'vi' else "Category"
+    # Build HTML table with coloured badges and tooltips
+    table_rows = []
+    for item in risk_data:
+        cat_info = category_map.get(item["Category"], category_map.get("-"))
+        # Tooltip messages for risk categories
+        if item["Category"] == "Low":
+            tooltip = get_text("risk_tooltip_low", lang)
+        elif item["Category"] == "Medium":
+            tooltip = get_text("risk_tooltip_medium", lang)
+        elif item["Category"] == "High":
+            tooltip = get_text("risk_tooltip_high", lang)
+        else:
+            tooltip = ""
+        badge = f"<span style='background:{cat_info['color']};color:white;padding:3px 8px;border-radius:4px;' title='{tooltip}'>{cat_info['label']}</span>"
+        table_rows.append(
+            f"<tr>"
+            f"<td style='padding:6px 12px;border-bottom:1px solid #e5e7eb;'>{item['Metric']}</td>"
+            f"<td style='padding:6px 12px;border-bottom:1px solid #e5e7eb;text-align:right;'>{item['Value']}</td>"
+            f"<td style='padding:6px 12px;border-bottom:1px solid #e5e7eb;text-align:center;'>{badge}</td>"
+            f"</tr>"
+        )
+    table_html = (
+        f"<table style='width:100%;border-collapse:collapse;font-size:14px;'>"
+        f"<thead><tr>"
+        f"<th style='text-align:left;padding:6px 12px;border-bottom:2px solid #e5e7eb;'>{metric_col}</th>"
+        f"<th style='text-align:right;padding:6px 12px;border-bottom:2px solid #e5e7eb;'>{value_col}</th>"
+        f"<th style='text-align:center;padding:6px 12px;border-bottom:2px solid #e5e7eb;'>{category_col}</th>"
+        f"</tr></thead>"
+        f"<tbody>{''.join(table_rows)}</tbody></table>"
+    )
+    st.markdown(table_html, unsafe_allow_html=True)
     # Generate dynamic risk notes based on metrics
     risk_notes_vi = []
     risk_notes_en = []
