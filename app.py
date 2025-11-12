@@ -21,6 +21,56 @@ from utils_new.lang import LANG_VI, LANG_EN, get_text, T
 
 warnings.filterwarnings("ignore", category=UserWarning)
 
+# Load a mapping of ticker symbols to their full Vietnamese/English company names.
+# This optional CSV should live alongside the application code and have columns
+# `Ticker`, `CompanyNameVi`, and optionally `CompanyNameEn`. If the file or a
+# particular ticker is missing, we fall back to using the ticker symbol as the
+# name. Caching is used so the file is read only once per session.
+@st.cache_data(show_spinner=False)
+def load_company_names(file_path: str | None = None) -> dict:
+    """Load a dictionary mapping tickers to company names.
+
+    Parameters
+    ----------
+    file_path: Optional path to the CSV mapping file. If not provided, the
+        function will attempt to load a file named `company_names.csv` located
+        in the same directory as this module. The expected CSV schema is::
+
+            Ticker,CompanyNameVi,CompanyNameEn
+
+    Returns
+    -------
+    dict
+        A dictionary keyed by uppercase ticker with values being another
+        dictionary containing the Vietnamese ("vi") and English ("en") names. If
+        the file does not exist or cannot be read, an empty dictionary is
+        returned. Missing fields fall back to the ticker itself.
+    """
+    # Determine the default path relative to this file when not provided
+    if file_path is None:
+        this_dir = os.path.dirname(os.path.abspath(__file__))
+        file_path = os.path.join(this_dir, "company_names.csv")
+
+    names: dict[str, dict[str, str]] = {}
+    if not os.path.exists(file_path):
+        return names
+    try:
+        df = pd.read_csv(file_path)
+        # Normalize the ticker column to uppercase strings
+        if 'Ticker' not in df.columns:
+            return names
+        for _, row in df.iterrows():
+            tkr = str(row['Ticker']).strip().upper()
+            vi = str(row.get('CompanyNameVi', '')).strip()
+            en = str(row.get('CompanyNameEn', vi)).strip()
+            if not tkr:
+                continue
+            names[tkr] = {"vi": vi if vi else tkr, "en": en if en else tkr}
+    except Exception:
+        # Ignore errors silently; fallback will be used
+        return {}
+    return names
+
 # ---------- Page config & styles ----------
 st.set_page_config(page_title="Corporate Default Risk Scoring", layout="wide")
 
@@ -251,43 +301,54 @@ with st.sidebar:
         lang_cur = st.session_state.current_lang
         # Determine logo URL (use uppercase ticker to match Vietstock image endpoint)
         logo_url = f"https://finance.vietstock.vn/image/{ticker.upper()}"
-        # Fallback company name (Vietnamese) — use ticker when no external data
-        company_name_vi = str(ticker).upper()
+        # Lookup company name from optional CSV mapping. If not found, fallback to ticker.
+        names_dict = load_company_names()
+        # Default names for Vietnamese and English
+        name_vi = ticker.upper()
+        name_en = ticker.upper()
+        if isinstance(names_dict, dict):
+            nm = names_dict.get(str(ticker).upper())
+            if nm:
+                name_vi = nm.get("vi", name_vi) or name_vi
+                name_en = nm.get("en", name_en) or name_en
+        # Prepare translated labels for ticker and other fields
+        # Vietnamese label for ticker
+        ticker_label_vi = "Mã cổ phiếu"
+        ticker_label_en = "Ticker"
+        # Select the appropriate labels for exchange and sector
         if lang_cur == LANG_VI:
-            # Build card with logo and company name in Vietnamese
-            card_html = f"""
-            <div style='background-color:#E8F1FB;border:1px solid #cbd5e1;border-radius:10px;padding:12px;margin-top:6px;display:flex;align-items:center;'>
-              <div style='flex:0 0 auto;margin-right:12px;'>
-                <img src='{logo_url}' alt='logo' style='height:60px;object-fit:contain;'>
-              </div>
-              <div style='flex:1 1 auto;'>
-                <div style='font-weight:600;font-size:15px;margin-bottom:4px;'>{get_text('profile_header', lang_cur)}</div>
-                <div style='font-weight:600;margin-bottom:4px;'>{company_name_vi} ({ticker.upper()})</div>
-                <div><strong>Sàn:</strong> {ex}</div>
-                <div><strong>Ngành:</strong> {sec}</div>
-                <div><strong>{get_text('metric_total_assets', lang_cur)}:</strong> {assets_disp}</div>
-                <div><strong>{get_text('metric_equity', lang_cur)}:</strong> {equity_disp}</div>
-                <div><strong>{get_text('metric_debt', lang_cur)}:</strong> {debt_disp}</div>
-              </div>
-            </div>
-            """
+            header_text = get_text('profile_header', lang_cur)
+            company_display = name_vi if name_vi else ticker.upper()
+            ticker_label = ticker_label_vi
+            exchange_label = "Sàn:"
+            sector_label = "Ngành:"
         else:
-            card_html = f"""
-            <div style='background-color:#E8F1FB;border:1px solid #cbd5e1;border-radius:10px;padding:12px;margin-top:6px;display:flex;align-items:center;'>
-              <div style='flex:0 0 auto;margin-right:12px;'>
-                <img src='{logo_url}' alt='logo' style='height:60px;object-fit:contain;'>
-              </div>
-              <div style='flex:1 1 auto;'>
-                <div style='font-weight:600;font-size:15px;margin-bottom:4px;'>{get_text('profile_header', lang_cur)}</div>
-                <div style='font-weight:600;margin-bottom:4px;'>{company_name_vi} ({ticker.upper()})</div>
-                <div><strong>Exchange:</strong> {ex}</div>
-                <div><strong>Sector:</strong> {sec}</div>
-                <div><strong>{get_text('metric_total_assets', lang_cur)}:</strong> {assets_disp}</div>
-                <div><strong>{get_text('metric_equity', lang_cur)}:</strong> {equity_disp}</div>
-                <div><strong>{get_text('metric_debt', lang_cur)}:</strong> {debt_disp}</div>
-              </div>
-            </div>
-            """
+            header_text = get_text('profile_header', lang_cur)
+            # Use the English company name if available, otherwise fall back to Vietnamese
+            company_display = name_en if name_en else name_vi if name_vi else ticker.upper()
+            ticker_label = ticker_label_en
+            exchange_label = "Exchange:"
+            sector_label = "Sector:"
+
+        # Build the company profile card.  Use a vertical layout to avoid the logo overflowing
+        # and ensure the logo does not stretch or distort the card.  The logo is limited in
+        # both height and width for consistent sizing across different aspect ratios.
+        card_html = f"""
+        <div style='background-color:#E8F1FB;border:1px solid #cbd5e1;border-radius:10px;padding:12px;margin-top:6px;'>
+          <div style='font-weight:600;font-size:15px;margin-bottom:6px;'>{header_text}</div>
+          <div style='font-weight:600;font-size:14px;margin-bottom:4px;'>{company_display}</div>
+          <div style='font-size:13px;margin-bottom:6px;'><strong>{ticker_label}:</strong> {ticker.upper()}</div>
+          <div style='margin-bottom:8px;'>
+            <img src='{logo_url}' alt='logo' style='max-height:50px;max-width:140px;width:auto;height:auto;object-fit:contain;'>
+          </div>
+          <div style='font-size:13px;'><strong>{exchange_label}</strong> {ex}</div>
+          <div style='font-size:13px;'><strong>{sector_label}</strong> {sec}</div>
+          <div style='font-size:13px;'><strong>{get_text('metric_total_assets', lang_cur)}:</strong> {assets_disp}</div>
+          <div style='font-size:13px;'><strong>{get_text('metric_equity', lang_cur)}:</strong> {equity_disp}</div>
+          <div style='font-size:13px;'><strong>{get_text('metric_debt', lang_cur)}:</strong> {debt_disp}</div>
+        </div>
+        """
+        # Render the card
         st.markdown(card_html, unsafe_allow_html=True)
     else:
         st.info(get_text("warning_no_data", st.session_state.current_lang))
