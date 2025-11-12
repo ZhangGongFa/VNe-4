@@ -47,7 +47,10 @@ def render(feats_df: pd.DataFrame, raw_df: pd.DataFrame, ticker: str, year: int,
         # Filter for selected ticker and year
         news_df = news_data[(news_data['Ticker'].astype(str)==str(ticker)) & (news_data['Year']==year)].copy()
         if news_df.empty:
-            st.info("Không có dữ liệu tin tức cho mã cổ phiếu và năm đã chọn." if lang=='vi' else "No news data available for the selected ticker and year.")
+            # Friendly suggestion when no news data is available
+            no_data_msg_vi = "Không có dữ liệu tin tức cho mã cổ phiếu và năm đã chọn. Vui lòng thử năm khác hoặc thu thập thêm tin tức."
+            no_data_msg_en = "No news data available for the selected ticker and year. Please try another year or collect more news articles."
+            st.info(no_data_msg_vi if lang=='vi' else no_data_msg_en)
         else:
             # Rename columns for display
             display_df = news_df.rename(columns={
@@ -65,15 +68,19 @@ def render(feats_df: pd.DataFrame, raw_df: pd.DataFrame, ticker: str, year: int,
                 mode='lines+markers',
                 name=('Điểm Tình Cảm' if lang=='vi' else 'Sentiment Score'),
                 line=dict(color='rgba(10, 102, 194, 0.8)', width=3),
-                marker=dict(size=10),
-                fill='tozeroy'
+                marker=dict(size=8),
+                fill='tozeroy',
+                hovertemplate=(
+                    ("Ngày: %{x}<br>Điểm: %{y:.2f}" if lang=='vi' else "Date: %{x}<br>Score: %{y:.2f}") + "<extra></extra>"
+                )
             ))
             fig.update_layout(
                 title=("Xu Hướng Tình Cảm Tin Tức" if lang=='vi' else "News Sentiment Trend"),
                 xaxis_title=('Ngày' if lang=='vi' else 'Date'),
                 yaxis_title=('Điểm Tình Cảm' if lang=='vi' else 'Sentiment Score'),
                 height=350,
-                yaxis=dict(range=[-1, 1])
+                yaxis=dict(range=[-1, 1]),
+                xaxis_tickangle=-30
             )
             st.plotly_chart(fig, use_container_width=True, key="sentiment_trend_chart")
     
@@ -110,17 +117,25 @@ def render(feats_df: pd.DataFrame, raw_df: pd.DataFrame, ticker: str, year: int,
             label_counts = subset_canonical.value_counts().to_dict()
             canonical_order = ['Very Positive','Positive','Neutral','Negative','Very Negative']
             counts = [label_counts.get(l, 0) for l in canonical_order]
+            total = sum(counts) if sum(counts) > 0 else 1
             labels_display = canonical_order if lang != 'vi' else ['Rất Tích Cực','Tích Cực','Trung Lập','Tiêu Cực','Rất Tiêu Cực']
+            # Build pie chart with hover template showing counts and percentages
             fig_pie = go.Figure(data=[go.Pie(
                 labels=labels_display,
                 values=counts,
-                marker=dict(colors=['#22C55E', '#3B82F6', '#F59E0B', '#EF4444', '#991B1B'])
+                marker=dict(colors=['#22C55E', '#3B82F6', '#F59E0B', '#EF4444', '#991B1B']),
+                hovertemplate=(
+                    "%{label}: %{value} " + ("bài" if lang=='vi' else "articles") + " (" + "%{percent:.1%}" + ")<extra></extra>"
+                )
             )])
             fig_pie.update_layout(height=350)
             st.markdown("**" + ("Phân Loại Tình Cảm" if lang=='vi' else "Sentiment Distribution") + "**")
             st.plotly_chart(fig_pie, use_container_width=True, key="sentiment_dist_chart")
         else:
-            st.info("Chưa có dữ liệu phân loại tình cảm." if lang=='vi' else "No sentiment distribution data available.")
+            # Suggest exploring another year or collecting more news when no distribution data
+            no_dist_msg_vi = "Chưa có dữ liệu phân loại tình cảm. Vui lòng thử năm khác hoặc thu thập dữ liệu tin tức."
+            no_dist_msg_en = "No sentiment distribution data available. Please try another year or collect more news data."
+            st.info(no_dist_msg_vi if lang=='vi' else no_dist_msg_en)
         # Key factors: derive from positive vs negative ratio from raw data if available
         row_raw = raw_df[(raw_df['Ticker'].astype(str)==str(ticker)) & (raw_df['Year']==year)]
         if not row_raw.empty:
@@ -143,7 +158,8 @@ def render(feats_df: pd.DataFrame, raw_df: pd.DataFrame, ticker: str, year: int,
                     orientation='h',
                     marker_color='rgba(10, 102, 194, 0.8)',
                     text=[f"{v:.1f}%" for v in factor_vals],
-                    textposition='outside'
+                    textposition='outside',
+                    hovertemplate="%{y}: %{x:.1f}%<extra></extra>"
                 )])
                 fig_bar.update_layout(height=350, xaxis_title=("Tác Động (%)" if lang=='vi' else 'Impact (%)'))
                 st.markdown("**" + ("Các Yếu Tố Chính" if lang=='vi' else 'Key Factors') + "**")
@@ -201,32 +217,62 @@ def render(feats_df: pd.DataFrame, raw_df: pd.DataFrame, ticker: str, year: int,
                 overall_label = "Tiêu Cực" if lang=='vi' else "Negative"
             else:
                 overall_label = "Trung Lập" if lang=='vi' else "Neutral"
-        # Compose descriptive text
+        # Compose descriptive text with card-style layout for strengths, weaknesses and recommendations
         if lang == 'vi':
-            st.markdown("**Đánh Giá Tổng Thể:**\n\n" +
-                        ("Tình cảm thị trường đối với công ty hiện tại là **" + overall_label + "**" + (f" với điểm trung bình **{avg_score:.2f}/1.0**" if not pd.isna(avg_score) else "") + "."))
-            # Strengths/weaknesses could be derived from sentiment distribution; here we keep general guidance
-            st.markdown("**Điểm Mạnh:**\n" +
-                        "- Tỷ lệ tin tức tích cực cao hỗ trợ hình ảnh doanh nghiệp\n" +
-                        "- Các tin tức về kế hoạch phát triển và kết quả kinh doanh tốt giúp củng cố niềm tin nhà đầu tư\n" +
-                        "\n**Điểm Yếu:**\n" +
-                        "- Xuất hiện tin tức tiêu cực hoặc cảnh báo có thể ảnh hưởng đến giá cổ phiếu\n" +
-                        "- Biến động thị trường và môi trường vĩ mô có thể làm giảm kỳ vọng\n" +
-                        "\n**Khuyến Nghị:**\n" +
-                        "- Doanh nghiệp cần duy trì minh bạch thông tin và cải thiện kết quả kinh doanh\n" +
-                        "- Theo dõi sát sao các yếu tố vĩ mô và cạnh tranh trong ngành" )
+            overall_title = "Đánh Giá Tổng Thể"
+            strengths_title = "Điểm Mạnh"
+            weaknesses_title = "Điểm Yếu"
+            recommend_title = "Khuyến Nghị"
+            summary_text = f"Tình cảm thị trường đối với công ty hiện tại là **{overall_label}**" + (f" với điểm trung bình **{avg_score:.2f}/1.0**" if not pd.isna(avg_score) else "") + "."
+            strengths_bullets = [
+                "Tỷ lệ tin tức tích cực cao hỗ trợ hình ảnh doanh nghiệp",
+                "Các tin tức về kế hoạch phát triển và kết quả kinh doanh tốt giúp củng cố niềm tin nhà đầu tư"
+            ]
+            weaknesses_bullets = [
+                "Xuất hiện tin tức tiêu cực hoặc cảnh báo có thể ảnh hưởng đến giá cổ phiếu",
+                "Biến động thị trường và môi trường vĩ mô có thể làm giảm kỳ vọng"
+            ]
+            recommendations_bullets = [
+                "Doanh nghiệp cần duy trì minh bạch thông tin và cải thiện kết quả kinh doanh",
+                "Theo dõi sát sao các yếu tố vĩ mô và cạnh tranh trong ngành"
+            ]
         else:
-            st.markdown("**Overall Assessment:**\n\n" +
-                        ("Market sentiment towards the company is currently **" + overall_label + "**" + (f" with an average score of **{avg_score:.2f}/1.0**" if not pd.isna(avg_score) else "") + "."))
-            st.markdown("**Strengths:**\n" +
-                        "- A high ratio of positive news supports the company image\n" +
-                        "- News about development plans and strong business results boosts investor confidence\n" +
-                        "\n**Weaknesses:**\n" +
-                        "- Negative or warning news may dampen the stock price\n" +
-                        "- Market volatility and macro conditions could reduce expectations\n" +
-                        "\n**Recommendations:**\n" +
-                        "- Maintain transparency and improve operating performance\n" +
-                        "- Monitor macro factors and industry competition closely")
+            overall_title = "Overall Assessment"
+            strengths_title = "Strengths"
+            weaknesses_title = "Weaknesses"
+            recommend_title = "Recommendations"
+            summary_text = f"Market sentiment towards the company is currently **{overall_label}**" + (f" with an average score of **{avg_score:.2f}/1.0**" if not pd.isna(avg_score) else "") + "."
+            strengths_bullets = [
+                "A high ratio of positive news supports the company image",
+                "News about development plans and strong business results boosts investor confidence"
+            ]
+            weaknesses_bullets = [
+                "Negative or warning news may dampen the stock price",
+                "Market volatility and macro conditions could reduce expectations"
+            ]
+            recommendations_bullets = [
+                "Maintain transparency and improve operating performance",
+                "Monitor macro factors and industry competition closely"
+            ]
+        # Display overall summary
+        st.markdown(f"**{overall_title}:**\n\n{summary_text}")
+        # Draw cards using columns to separate sections
+        card_cols = st.columns(3)
+        def render_card(col, title, bullets, bg_color, border_color):
+            with col:
+                bullet_html = ''.join([f"<li>{item}</li>" for item in bullets])
+                card_html = f"<div style='background:{bg_color};border:1px solid {border_color};border-radius:8px;padding:12px;margin-bottom:8px;'>" \
+                             f"<strong>{title}</strong><ul style='margin-top:4px;margin-bottom:0;padding-left:20px;'>" + bullet_html + "</ul></div>"
+                st.markdown(card_html, unsafe_allow_html=True)
+        # Define colours for cards (pastel palette)
+        if lang == 'vi':
+            render_card(card_cols[0], strengths_title, strengths_bullets, '#ECFDF5', '#34D399')
+            render_card(card_cols[1], weaknesses_title, weaknesses_bullets, '#FEF2F2', '#F87171')
+            render_card(card_cols[2], recommend_title, recommendations_bullets, '#EFF6FF', '#60A5FA')
+        else:
+            render_card(card_cols[0], strengths_title, strengths_bullets, '#ECFDF5', '#34D399')
+            render_card(card_cols[1], weaknesses_title, weaknesses_bullets, '#FEF2F2', '#F87171')
+            render_card(card_cols[2], recommend_title, recommendations_bullets, '#EFF6FF', '#60A5FA')
         # Key metrics summary
         st.markdown("**" + ("Chỉ Số Chính" if lang == 'vi' else 'Key Metrics') + "**")
         col1, col2, col3, col4 = st.columns(4)
@@ -240,18 +286,52 @@ def render(feats_df: pd.DataFrame, raw_df: pd.DataFrame, ticker: str, year: int,
         else:
             pos_ratio = neg_ratio = neu_ratio = np.nan
         with col1:
-            st.metric(('Điểm Tình Cảm Trung Bình' if lang=='vi' else 'Avg Sentiment Score'), (f"{avg_score:.2f}" if not pd.isna(avg_score) else "-"), None)
+            st.metric(
+                ('Điểm Tình Cảm Trung Bình' if lang=='vi' else 'Avg Sentiment Score'),
+                (f"{avg_score:.2f}" if not pd.isna(avg_score) else "-"),
+                None,
+                help=(
+                    'Điểm trung bình của tất cả tin tức, dao động từ -1 đến 1' if lang=='vi' else 'Average sentiment score of all news articles, ranging from -1 to 1'
+                )
+            )
         with col2:
-            st.metric(('Tin Tức Tích Cực (%)' if lang=='vi' else 'Positive News (%)'), (f"{pos_ratio*100:.1f}%" if not pd.isna(pos_ratio) else "-"), None)
+            st.metric(
+                ('Tin Tức Tích Cực (%)' if lang=='vi' else 'Positive News (%)'),
+                (f"{pos_ratio*100:.1f}%" if not pd.isna(pos_ratio) else "-"),
+                None,
+                help=(
+                    'Tỷ lệ phần trăm tin tức tích cực trên tổng số tin tức' if lang=='vi' else 'Percentage of positive news articles relative to total news'
+                )
+            )
         with col3:
-            # Confidence could be proxied by news volume or neutral ratio
+            # Confidence could be proxied by news volume; classify into High/Medium/Low
             news_volume = rr.get('News Volume', np.nan) if not row_raw_sel.empty else np.nan
-            confidence_label = 'Cao' if lang=='vi' else 'High'
-            st.metric(('Độ Tin Cậy' if lang=='vi' else 'Confidence'), confidence_label, None)
+            if pd.isna(news_volume) or news_volume < 5:
+                confidence_label = 'Thấp' if lang=='vi' else 'Low'
+            elif news_volume < 15:
+                confidence_label = 'Trung Bình' if lang=='vi' else 'Medium'
+            else:
+                confidence_label = 'Cao' if lang=='vi' else 'High'
+            st.metric(
+                ('Độ Tin Cậy' if lang=='vi' else 'Confidence'),
+                confidence_label,
+                None,
+                help=(
+                    'Độ tin cậy dựa trên khối lượng tin tức: càng nhiều tin tức, điểm càng tin cậy' if lang=='vi' else 'Confidence reflects the news volume: more articles imply a more reliable score'
+                )
+            )
         with col4:
-            # Trend from Sentiment Change if available
+            # Trend from sentiment change if available
             sentiment_change = rr.get('Sentiment Change', np.nan)
-            trend_label = 'Tăng' if (not pd.isna(sentiment_change) and sentiment_change > 0) else ('Giảm' if (not pd.isna(sentiment_change) and sentiment_change < 0) else 'Ổn Định')
-            if lang != 'vi':
+            if lang == 'vi':
+                trend_label = 'Tăng' if (not pd.isna(sentiment_change) and sentiment_change > 0) else ('Giảm' if (not pd.isna(sentiment_change) and sentiment_change < 0) else 'Ổn Định')
+            else:
                 trend_label = 'Up' if (not pd.isna(sentiment_change) and sentiment_change > 0) else ('Down' if (not pd.isna(sentiment_change) and sentiment_change < 0) else 'Stable')
-            st.metric(('Xu Hướng' if lang=='vi' else 'Trend'), trend_label, (f"{sentiment_change*100:.1f}%" if not pd.isna(sentiment_change) else None))
+            st.metric(
+                ('Xu Hướng' if lang=='vi' else 'Trend'),
+                trend_label,
+                (f"{sentiment_change*100:.1f}%" if not pd.isna(sentiment_change) else None),
+                help=(
+                    'Xu hướng cho thấy sự thay đổi điểm tình cảm so với kỳ trước' if lang=='vi' else 'Trend indicates the change in sentiment compared to the previous period'
+                )
+            )

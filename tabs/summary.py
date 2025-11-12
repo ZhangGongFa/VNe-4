@@ -414,6 +414,10 @@ def render(feats_df: pd.DataFrame, raw_df: pd.DataFrame, ticker: str, year: int,
                     legend=dict(orientation="h", yanchor="bottom", y=-0.25, xanchor="center", x=0.5),
                     height=380,
                 )
+                # Apply custom colours and rotate year labels for clarity
+                fig_rev.update_traces(marker_color="#3B82F6", selector=dict(type="bar"))
+                fig_rev.update_traces(line=dict(color="#EF4444"), selector=dict(type="scatter"))
+                fig_rev.update_layout(xaxis_tickangle=-30)
                 st.plotly_chart(fig_rev, use_container_width=True)
             else:
                 st.info(get_text("info_no_historical", lang))
@@ -425,15 +429,54 @@ def render(feats_df: pd.DataFrame, raw_df: pd.DataFrame, ticker: str, year: int,
         st.plotly_chart(fig_cap, use_container_width=True)
     # Key financial ratios table
     st.markdown("### " + get_text("summary_key_ratios_title", lang))
-    key_ratios = pd.DataFrame({
-        "Metric": ["ROA", "ROE", get_text("metric_dta", lang), get_text("metric_dte", lang), "Current Ratio", "Quick Ratio"],
-        "Value": [roa, roe, dta, dte, current_ratio, quick_ratio],
-    })
-    key_ratios["Value"] = key_ratios["Value"].apply(_fmt_ratio)
-    # Localize column names
-    if lang == 'vi':
-        key_ratios = key_ratios.rename(columns={"Metric": "Chỉ số", "Value": "Giá trị"})
-    st.dataframe(key_ratios, use_container_width=True, hide_index=True)
+    # Build a custom key ratios table with tooltips explaining each metric
+    key_items = [
+        ("ROA", roa),
+        ("ROE", roe),
+        (get_text("metric_dta", lang), dta),
+        (get_text("metric_dte", lang), dte),
+        ("Current Ratio", current_ratio),
+        ("Quick Ratio", quick_ratio),
+    ]
+    # Descriptions for each ratio in Vietnamese and English
+    ratio_desc_vi = {
+        "ROA": "Tỷ suất sinh lợi trên tài sản – lợi nhuận so với tổng tài sản",
+        "ROE": "Tỷ suất sinh lợi trên vốn chủ – lợi nhuận so với vốn chủ sở hữu",
+        get_text("metric_dta", 'vi'): "Tỷ lệ nợ trên tổng tài sản – tổng nợ chia cho tổng tài sản",
+        get_text("metric_dte", 'vi'): "Tỷ lệ nợ trên vốn chủ sở hữu – tổng nợ chia cho vốn chủ sở hữu",
+        "Current Ratio": "Hệ số khả năng thanh toán hiện hành – tài sản ngắn hạn chia cho nợ ngắn hạn",
+        "Quick Ratio": "Hệ số thanh khoản nhanh – (tiền mặt + phải thu) chia cho nợ ngắn hạn",
+    }
+    ratio_desc_en = {
+        "ROA": "Return on Assets – profit relative to total assets",
+        "ROE": "Return on Equity – profit relative to equity",
+        get_text("metric_dta", 'en'): "Debt-to-Assets ratio – total liabilities divided by total assets",
+        get_text("metric_dte", 'en'): "Debt-to-Equity ratio – total liabilities divided by equity",
+        "Current Ratio": "Current assets divided by current liabilities",
+        "Quick Ratio": "(Cash + Receivables) divided by current liabilities",
+    }
+    ratio_desc = ratio_desc_vi if lang == 'vi' else ratio_desc_en
+    metric_col = "Chỉ số" if lang == 'vi' else "Metric"
+    value_col = "Giá trị" if lang == 'vi' else "Value"
+    rows_html = []
+    for lbl, val in key_items:
+        display_val = _fmt_ratio(val)
+        desc = ratio_desc.get(lbl, "")
+        # Escape single quotes in description to avoid breaking HTML
+        safe_desc = desc.replace("'", "&#39;") if isinstance(desc, str) else desc
+        rows_html.append(
+            f"<tr><td style='padding:6px 12px;border-bottom:1px solid #e5e7eb;'><span title='{safe_desc}'>{lbl}</span></td>"
+            f"<td style='padding:6px 12px;border-bottom:1px solid #e5e7eb;text-align:right;'>{display_val}</td></tr>"
+        )
+    table_html = (
+        f"<table style='width:100%;border-collapse:collapse;font-size:14px;'>"
+        f"<thead><tr>"
+        f"<th style='text-align:left;padding:6px 12px;border-bottom:2px solid #e5e7eb;'>{metric_col}</th>"
+        f"<th style='text-align:right;padding:6px 12px;border-bottom:2px solid #e5e7eb;'>{value_col}</th>"
+        f"</tr></thead>"
+        f"<tbody>{''.join(rows_html)}</tbody></table>"
+    )
+    st.markdown(table_html, unsafe_allow_html=True)
     # ------------------------------------------------------------------
     # Section B: Default Probability & Policy Band
     st.subheader(get_text("summary_section_pd", lang))
@@ -454,25 +497,43 @@ def render(feats_df: pd.DataFrame, raw_df: pd.DataFrame, ticker: str, year: int,
         high_text = get_text("policy_high", lang)
         floor_cap = get_text("policy_floor_cap", lang)
         exch_label = get_text("policy_exchange", lang)
-        st.markdown(
-            f"""
-            <div style='font-size:12px;'>
-              <span style='display:inline-flex;align-items:center;gap:8px;'>
-                <span style='display:inline-block;width:14px;height:14px;background:#E8F1FB;border:1px solid #cbd5e1;border-radius:3px;'></span>
-                {low_text} &lt; 20%
-                <span style='display:inline-block;width:14px;height:14px;background:#CFE3F7;border:1px solid #cbd5e1;border-radius:3px;margin-left:12px;'></span>
-                {med_text} &lt; 50%
-                <span style='display:inline-block;width:14px;height:14px;background:#F9E3E3;border:1px solid #cbd5e1;border-radius:3px;margin-left:12px;'></span>
-                {high_text} ≥ 50%<br/>
-                {floor_cap}: {pd_floor:.0%}/0.98 • {exch_label}: {exchange or '-'}
-              </span>
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
+        # Construct an enhanced legend explaining PD bands with colour, thresholds and tooltips
+        if lang == 'vi':
+            low_desc = "Mức PD thấp (<20%) – rủi ro vỡ nợ thấp, có thể chấp nhận"
+            med_desc = "Mức PD trung bình (20%-50%) – rủi ro vừa, cần theo dõi"
+            high_desc = "Mức PD cao (≥50%) – rủi ro cao, cần thận trọng"
+            floor_explanation = "Ngưỡng sàn phản ánh PD tối thiểu theo sàn giao dịch; ngưỡng trần 0.98 giới hạn PD tối đa."
+        else:
+            low_desc = "Low PD (<20%) – low default risk, acceptable"
+            med_desc = "Medium PD (20%-50%) – moderate risk, monitor"
+            high_desc = "High PD (≥50%) – high default risk, caution"
+            floor_explanation = "The floor reflects the minimum PD based on the listing exchange; the cap 0.98 limits the maximum PD."
+        legend_html = f"""
+        <div style='font-size:12px;line-height:1.4;'>
+          <div style='display:flex;align-items:center;gap:6px;'>
+            <span style='width:14px;height:14px;background:#C6F6D5;border:1px solid #4CAF50;border-radius:3px;display:inline-block;' title='{low_desc}'></span>
+            {low_text} &lt; 20%
+          </div>
+          <div style='display:flex;align-items:center;gap:6px;margin-top:4px;'>
+            <span style='width:14px;height:14px;background:#FDE68A;border:1px solid #D97706;border-radius:3px;display:inline-block;' title='{med_desc}'></span>
+            {med_text} &lt; 50%
+          </div>
+          <div style='display:flex;align-items:center;gap:6px;margin-top:4px;'>
+            <span style='width:14px;height:14px;background:#FECACA;border:1px solid #DC2626;border-radius:3px;display:inline-block;' title='{high_desc}'></span>
+            {high_text} ≥ 50%
+          </div>
+          <div style='margin-top:4px;font-size:11px;color:#6B7280;'>
+            {floor_cap}: {pd_floor:.0%}/0.98 • {exch_label}: {exchange or '-'}
+          </div>
+          <div style='font-size:11px;color:#6B7280;margin-top:2px;'>
+            {floor_explanation}
+          </div>
+        </div>
+        """
+        st.markdown(legend_html, unsafe_allow_html=True)
     # Right column: Interactive gauge charts for multiple models
     with col_pd2:
-        # Define PD values for each model. Since only the LightGBM model is available, other models are approximated.
+        # Define PD values for each model. Since only LightGBM is available, other models are approximated.
         model_pd = {
             "LightGBM": pd_final,
             "XGBoost": min(max(pd_final * 1.05, 0.0), 1.0),
@@ -480,15 +541,21 @@ def render(feats_df: pd.DataFrame, raw_df: pd.DataFrame, ticker: str, year: int,
             "AdaBoost": min(max(pd_final * 1.15, 0.0), 1.0),
         }
         model_options = ["LightGBM", "XGBoost", "CatBoost", "AdaBoost"]
-        # ------------------------------------------------------------------
-        # Interactive carousel for PD models
-        # ------------------------------------------------------------------
-        # Maintain the currently selected model index in session state
+        # Persist currently selected model index in session state
         if 'pd_model_idx' not in st.session_state:
             st.session_state['pd_model_idx'] = 0
-        # Define helper to rotate index when arrow buttons are clicked
+        # Allow users to directly select a model via radio buttons
+        sel_model_radio = st.radio(
+            get_text("pd_model_selection", lang),
+            model_options,
+            index=st.session_state['pd_model_idx'],
+            horizontal=True,
+        )
+        # Update session state if radio selection differs
+        if sel_model_radio != model_options[st.session_state['pd_model_idx']]:
+            st.session_state['pd_model_idx'] = model_options.index(sel_model_radio)
+        # Provide arrow buttons for carousel navigation
         total_models = len(model_options)
-        # Layout for left arrow, empty spacer, right arrow
         arrow_cols = st.columns([1, 6, 1])
         with arrow_cols[0]:
             if st.button("◀", key="pd_carousel_left"):
@@ -496,22 +563,21 @@ def render(feats_df: pd.DataFrame, raw_df: pd.DataFrame, ticker: str, year: int,
         with arrow_cols[2]:
             if st.button("▶", key="pd_carousel_right"):
                 st.session_state['pd_model_idx'] = (st.session_state['pd_model_idx'] + 1) % total_models
-        # Determine indices for previous, current (selected) and next models
+        # Determine current, previous and next models based on the selected index
         sel_idx = st.session_state['pd_model_idx']
         prev_idx = (sel_idx - 1) % total_models
         next_idx = (sel_idx + 1) % total_models
-        # Determine names
         selected_model = model_options[sel_idx]
         prev_model = model_options[prev_idx]
         next_model = model_options[next_idx]
-        # Animation configuration
+        # Animation configuration for smooth gauge updates
         transition_opts = {'duration': 600, 'easing': 'cubic-in-out'}
-        # Display gauges in a carousel arrangement
+        # Layout for gauges: previous, selected, next
         gauge_cols = st.columns([1.5, 3, 1.5])
-        # Left (previous) gauge – dimmed
+        # Previous gauge (dimmed)
         with gauge_cols[0]:
             pd_val_prev = model_pd[prev_model]
-            bar_color_prev = '#bcd3ee'  # lighter color for secondary models
+            bar_color_prev = '#bcd3ee'
             fig_prev = go.Figure(go.Indicator(
                 mode="gauge+number",
                 value=pd_val_prev * 100,
@@ -520,9 +586,9 @@ def render(feats_df: pd.DataFrame, raw_df: pd.DataFrame, ticker: str, year: int,
                     'axis': {'range': [0, 100]},
                     'bar': {'color': bar_color_prev},
                     'steps': [
-                        {'range': [0, 20], 'color': '#E8F1FB'},
-                        {'range': [20, 50], 'color': '#CFE3F7'},
-                        {'range': [50, 100], 'color': '#F9E3E3'},
+                        {'range': [0, 20], 'color': '#C6F6D5'},
+                        {'range': [20, 50], 'color': '#FDE68A'},
+                        {'range': [50, 100], 'color': '#FECACA'},
                     ],
                     'threshold': {'line': {'color': 'red', 'width': 1}, 'value': pd_val_prev * 100},
                 },
@@ -530,7 +596,7 @@ def render(feats_df: pd.DataFrame, raw_df: pd.DataFrame, ticker: str, year: int,
             ))
             fig_prev.update_layout(height=160, margin=dict(l=10, r=10, t=10, b=10), transition=transition_opts)
             st.plotly_chart(fig_prev, use_container_width=True, key="pd_carousel_prev")
-        # Centre (selected) gauge – highlighted
+        # Selected gauge (highlighted)
         with gauge_cols[1]:
             pd_val_sel = model_pd[selected_model]
             bar_color_sel = '#1f77b4' if selected_model == 'LightGBM' else '#7db9e8'
@@ -542,9 +608,9 @@ def render(feats_df: pd.DataFrame, raw_df: pd.DataFrame, ticker: str, year: int,
                     'axis': {'range': [0, 100]},
                     'bar': {'color': bar_color_sel},
                     'steps': [
-                        {'range': [0, 20], 'color': '#E8F1FB'},
-                        {'range': [20, 50], 'color': '#CFE3F7'},
-                        {'range': [50, 100], 'color': '#F9E3E3'},
+                        {'range': [0, 20], 'color': '#C6F6D5'},
+                        {'range': [20, 50], 'color': '#FDE68A'},
+                        {'range': [50, 100], 'color': '#FECACA'},
                     ],
                     'threshold': {'line': {'color': 'red', 'width': 2}, 'value': pd_val_sel * 100},
                 },
@@ -552,7 +618,7 @@ def render(feats_df: pd.DataFrame, raw_df: pd.DataFrame, ticker: str, year: int,
             ))
             fig_sel.update_layout(height=260, margin=dict(l=10, r=10, t=10, b=10), transition=transition_opts)
             st.plotly_chart(fig_sel, use_container_width=True, key="pd_carousel_selected")
-        # Right (next) gauge – dimmed
+        # Next gauge (dimmed)
         with gauge_cols[2]:
             pd_val_next = model_pd[next_model]
             bar_color_next = '#bcd3ee'
@@ -564,9 +630,9 @@ def render(feats_df: pd.DataFrame, raw_df: pd.DataFrame, ticker: str, year: int,
                     'axis': {'range': [0, 100]},
                     'bar': {'color': bar_color_next},
                     'steps': [
-                        {'range': [0, 20], 'color': '#E8F1FB'},
-                        {'range': [20, 50], 'color': '#CFE3F7'},
-                        {'range': [50, 100], 'color': '#F9E3E3'},
+                        {'range': [0, 20], 'color': '#C6F6D5'},
+                        {'range': [20, 50], 'color': '#FDE68A'},
+                        {'range': [50, 100], 'color': '#FECACA'},
                     ],
                     'threshold': {'line': {'color': 'red', 'width': 1}, 'value': pd_val_next * 100},
                 },
@@ -574,15 +640,44 @@ def render(feats_df: pd.DataFrame, raw_df: pd.DataFrame, ticker: str, year: int,
             ))
             fig_next.update_layout(height=160, margin=dict(l=10, r=10, t=10, b=10), transition=transition_opts)
             st.plotly_chart(fig_next, use_container_width=True, key="pd_carousel_next")
-        # Show model performance ranking below carousel
+        # Display model performance table, comparison chart and pros/cons below the gauges
+        perf_df = pd.DataFrame({
+            'Model': ['LightGBM*', 'XGBoost', 'CatBoost', 'AdaBoost'],
+            'F1-Score': [0.948, 0.91, 0.899, 0.786],
+            'Accuracy': [0.95, 0.92, 0.91, 0.80],
+        })
         if lang == 'vi':
-            st.markdown(
-                "**Thứ hạng mô hình (F1-Score):** LightGBM* (94.8%), XGBoost (91.0%), CatBoost (89.9%), AdaBoost (78.6%)",
-            )
+            perf_df = perf_df.rename(columns={'Model': 'Mô hình', 'F1-Score': 'F1-Score', 'Accuracy': 'Độ chính xác'})
         else:
-            st.markdown(
-                "**Model ranking (F1-Score):** LightGBM* (94.8%), XGBoost (91.0%), CatBoost (89.9%), AdaBoost (78.6%)",
-            )
+            perf_df = perf_df.rename(columns={'Model': 'Model', 'F1-Score': 'F1-Score', 'Accuracy': 'Accuracy'})
+        st.dataframe(perf_df, use_container_width=True, hide_index=True)
+        fig_perf = go.Figure()
+        # Use the first column (Model/Mô hình) as x-axis
+        xvals = perf_df.iloc[:, 0]
+        fig_perf.add_trace(go.Bar(x=xvals, y=perf_df['F1-Score'], name='F1-Score', marker_color='#3B82F6'))
+        acc_label = ('Độ chính xác' if lang == 'vi' else 'Accuracy')
+        fig_perf.add_trace(go.Bar(x=xvals, y=perf_df['Accuracy'], name=acc_label, marker_color='#10B981'))
+        fig_perf.update_layout(
+            barmode='group',
+            height=320,
+            xaxis_title=('Mô hình' if lang == 'vi' else 'Model'),
+            yaxis_title=('Điểm' if lang == 'vi' else 'Score'),
+            legend=dict(orientation='h', yanchor='bottom', y=1.02, xanchor='center', x=0.5)
+        )
+        st.plotly_chart(fig_perf, use_container_width=True)
+        # Pros and cons narrative
+        if lang == 'vi':
+            st.markdown("**Ưu & Nhược điểm của mỗi mô hình:**\n"
+                        "- **LightGBM***: Cân bằng tốc độ và hiệu suất, xử lý dữ liệu không đều tốt nhưng cần tinh chỉnh tham số.\n"
+                        "- **XGBoost**: Hiệu quả và mạnh mẽ, nhưng tiêu tốn bộ nhớ và phụ thuộc điều chỉnh.\n"
+                        "- **CatBoost**: Xử lý dữ liệu phân loại tốt, nhưng chậm hơn và ít phổ biến.\n"
+                        "- **AdaBoost**: Đơn giản và dễ giải thích, nhưng độ chính xác thấp hơn và nhạy với nhiễu.")
+        else:
+            st.markdown("**Pros & cons of each model:**\n"
+                        "- **LightGBM***: Balanced speed and performance; handles uneven data well but requires parameter tuning.\n"
+                        "- **XGBoost**: Powerful and efficient yet memory-intensive and hyperparameter-sensitive.\n"
+                        "- **CatBoost**: Excels with categorical data but slower and less widely adopted.\n"
+                        "- **AdaBoost**: Simple and interpretable but less accurate and sensitive to noise.")
     # ------------------------------------------------------------------
     # Section C: Model Explainability (SHAP)
     st.subheader("C. Model Explainability (SHAP)")

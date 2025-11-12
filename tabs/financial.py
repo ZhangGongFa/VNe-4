@@ -330,16 +330,42 @@ def render(feats_df: pd.DataFrame, raw_df: pd.DataFrame, ticker: str, year: int,
         lbl_gm = 'Biên LN gộp' if lang == 'vi' else 'Gross Margin'
         lbl_om = 'Biên LN HĐ' if lang == 'vi' else 'Operating Margin'
         lbl_nm = 'Biên LN ròng' if lang == 'vi' else 'Net Margin'
+        # Build the profit margin trend chart with interactive enhancements
         fig_margin = go.Figure()
         # Custom colours for margins
         gm_color = "#10B981"  # green
         om_color = "#F59E0B"  # amber
         nm_color = "#EF4444"  # red
-        fig_margin.add_trace(go.Scatter(name=lbl_gm, x=trend_years, y=gross_margin_trend, mode='lines+markers', line=dict(color=gm_color)))
-        fig_margin.add_trace(go.Scatter(name=lbl_om, x=trend_years, y=operating_margin_trend, mode='lines+markers', line=dict(color=om_color)))
-        fig_margin.add_trace(go.Scatter(name=lbl_nm, x=trend_years, y=net_margin_trend, mode='lines+markers', line=dict(color=nm_color)))
+        # Add traces with hover templates showing values clearly
+        fig_margin.add_trace(go.Scatter(
+            name=lbl_gm,
+            x=trend_years,
+            y=gross_margin_trend,
+            mode='lines+markers',
+            line=dict(color=gm_color),
+            hovertemplate=f"{lbl_gm}: %{{y:.1f}}%<br>{'Năm' if lang=='vi' else 'Year'}: %{{x}}<extra></extra>"
+        ))
+        fig_margin.add_trace(go.Scatter(
+            name=lbl_om,
+            x=trend_years,
+            y=operating_margin_trend,
+            mode='lines+markers',
+            line=dict(color=om_color),
+            hovertemplate=f"{lbl_om}: %{{y:.1f}}%<br>{'Năm' if lang=='vi' else 'Year'}: %{{x}}<extra></extra>"
+        ))
+        fig_margin.add_trace(go.Scatter(
+            name=lbl_nm,
+            x=trend_years,
+            y=net_margin_trend,
+            mode='lines+markers',
+            line=dict(color=nm_color),
+            hovertemplate=f"{lbl_nm}: %{{y:.1f}}%<br>{'Năm' if lang=='vi' else 'Year'}: %{{x}}<extra></extra>"
+        ))
         # Add horizontal benchmark line at zero (break-even)
-        fig_margin.add_shape(type='line', x0=trend_years[0] if trend_years else 0, x1=trend_years[-1] if trend_years else 0, y0=0, y1=0, line=dict(color='#6B7280', dash='dash'))
+        fig_margin.add_shape(type='line', x0=trend_years[0] if trend_years else 0, x1=trend_years[-1] if trend_years else 0,
+                             y0=0, y1=0, line=dict(color='#6B7280', dash='dash'))
+        # Enable range slider for interactive zooming
+        fig_margin.update_xaxes(rangeslider_visible=True)
         fig_margin.update_layout(
             title=("Xu Hướng Biên Lợi Nhuận" if lang == 'vi' else "Profit Margin Trends"),
             height=350,
@@ -347,6 +373,7 @@ def render(feats_df: pd.DataFrame, raw_df: pd.DataFrame, ticker: str, year: int,
             legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
             xaxis_tickangle=-30,
         )
+        # Render the chart
         st.plotly_chart(fig_margin, use_container_width=True, key="finance_income_margin_chart")
 
         # Narrative analysis for the income statement
