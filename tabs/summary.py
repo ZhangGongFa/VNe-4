@@ -654,9 +654,12 @@ def render(feats_df: pd.DataFrame, raw_df: pd.DataFrame, ticker: str, year: int,
         fig_perf = go.Figure()
         # Use the first column (Model/Mô hình) as x-axis
         xvals = perf_df.iloc[:, 0]
+        # Always plot F1-Score
         fig_perf.add_trace(go.Bar(x=xvals, y=perf_df['F1-Score'], name='F1-Score', marker_color='#3B82F6'))
-        acc_label = ('Độ chính xác' if lang == 'vi' else 'Accuracy')
-        fig_perf.add_trace(go.Bar(x=xvals, y=perf_df['Accuracy'], name=acc_label, marker_color='#10B981'))
+        # Plot accuracy bar only if the column exists to avoid KeyError on missing data
+        if 'Accuracy' in perf_df.columns:
+            acc_label = ('Độ chính xác' if lang == 'vi' else 'Accuracy')
+            fig_perf.add_trace(go.Bar(x=xvals, y=perf_df['Accuracy'], name=acc_label, marker_color='#10B981'))
         fig_perf.update_layout(
             barmode='group',
             height=320,

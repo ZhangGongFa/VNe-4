@@ -124,8 +124,9 @@ def inject_global_css():
 inject_global_css()
 
 # ---------- Initialize language session state ----------
+# Default to English on first load.  The user can switch languages via sidebar buttons.
 if 'current_lang' not in st.session_state:
-    st.session_state.current_lang = LANG_VI
+    st.session_state.current_lang = LANG_EN
 
 # ---------- Small helpers ----------
 ID_LABEL_COLS = {"Year","Ticker","Sector","Exchange","Default"}
@@ -358,8 +359,9 @@ with st.sidebar:
     st.header(get_text("sidebar_report_header", st.session_state.current_lang))
 
     # Initialize session state for report selection
+    # Default to the Finance tab on first load for a more natural workflow.
     if 'report_tab' not in st.session_state:
-        st.session_state.report_tab = "Summary"
+        st.session_state.report_tab = "Finance"
 
     # Create vertical buttons for report selection. Each button spans full width to prevent text wrapping.
     if st.button(get_text("btn_finance", st.session_state.current_lang), key="btn_financial", use_container_width=True):

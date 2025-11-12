@@ -132,11 +132,15 @@ TEXTS = {
         LANG_EN: "Notes & Assessment"
     },
     "income_statement_title": {
-        LANG_VI: "Báo Cáo Thu Nhập (Income Statement)",
+        # In Vietnamese mode, show only the Vietnamese label without the English
+        # translation in parentheses.  English mode remains unchanged.
+        LANG_VI: "Báo Cáo Thu Nhập",
         LANG_EN: "Income Statement"
     },
     "balance_sheet_title": {
-        LANG_VI: "Bảng Cân Đối Kế Toán (Balance Sheet)",
+        # In Vietnamese mode, show only the Vietnamese label without the English
+        # translation in parentheses.  English mode remains unchanged.
+        LANG_VI: "Bảng Cân Đối Kế Toán",
         LANG_EN: "Balance Sheet"
     },
     "cashflow_statement_title": {
