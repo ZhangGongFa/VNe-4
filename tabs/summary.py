@@ -472,25 +472,37 @@ def render(feats_df: pd.DataFrame, raw_df: pd.DataFrame, ticker: str, year: int,
         )
     # Right column: Gauge chart
     with col_pd2:
-        gauge_fig = go.Figure(go.Indicator(
-            mode="gauge+number",
-            value=pd_final * 100,
-            number={'suffix': "%"},
-            gauge={
-                'axis': {'range': [0, 100]},
-                'bar': {'color': '#1f77b4'},
-                'steps': [
-                    {'range': [0, 20], 'color': '#E8F1FB'},
-                    {'range': [20, 50], 'color': '#CFE3F7'},
-                    {'range': [50, 100], 'color': '#F9E3E3'},
-                ],
-                'threshold': {'line': {'color': 'red', 'width': 3}, 'value': pd_final * 100},
-            },
-            title={'text': ""},
-        ))
-        # Let Plotly manage sizing; height defined for consistent appearance
-        gauge_fig.update_layout(height=220, margin=dict(l=10, r=10, t=10, b=10))
-        st.plotly_chart(gauge_fig, use_container_width=True)
+        # Display one large gauge (LightGBM) and three smaller gauges for illustrative alternative models.
+        subcols = st.columns([2, 1, 1, 1])
+        model_names = ["LightGBM", "Model 2", "Model 3", "Model 4"]
+        # Create slight perturbations of the final PD for placeholder models while keeping values within [0, 1]
+        pd_values = [
+            pd_final,
+            min(max(pd_final * 1.10, 0.0), 1.0),
+            min(max(pd_final * 0.90, 0.0), 1.0),
+            min(max(pd_final * 1.20, 0.0), 1.0)
+        ]
+        heights = [250, 200, 200, 200]
+        for _col, _name, _val, _ht in zip(subcols, model_names, pd_values, heights):
+            with _col:
+                fig_pd = go.Figure(go.Indicator(
+                    mode="gauge+number",
+                    value=_val * 100,
+                    number={'suffix': "%"},
+                    gauge={
+                        'axis': {'range': [0, 100]},
+                        'bar': {'color': '#1f77b4'},
+                        'steps': [
+                            {'range': [0, 20], 'color': '#E8F1FB'},
+                            {'range': [20, 50], 'color': '#CFE3F7'},
+                            {'range': [50, 100], 'color': '#F9E3E3'},
+                        ],
+                        'threshold': {'line': {'color': 'red', 'width': 2}, 'value': _val * 100},
+                    },
+                    title={'text': _name},
+                ))
+                fig_pd.update_layout(height=_ht, margin=dict(l=10, r=10, t=10, b=10))
+                st.plotly_chart(fig_pd, use_container_width=True)
     # ------------------------------------------------------------------
     # Section C: Model Explainability (SHAP)
     st.subheader("C. Model Explainability (SHAP)")
@@ -554,11 +566,41 @@ def render(feats_df: pd.DataFrame, raw_df: pd.DataFrame, ticker: str, year: int,
             else:
                 shap_df["absSHAP"] = shap_df["SHAP"].abs()
                 shap_df = shap_df.sort_values("absSHAP", ascending=True).tail(10)
+                # Map each financial indicator to a monotonic sign. Positive (+1) means higher values increase PD; negative (-1) means higher values reduce PD.
+                orientation_map = {
+                    "Current_Ratio": -1,
+                    "Quick_Ratio": -1,
+                    "Working_Capital_to_Total_Assets": -1,
+                    "Debt_to_Assets": +1,
+                    "Debt_to_Equity": +1,
+                    "Equity_to_Liabilities": -1,
+                    "Long_Term_Debt_to_Assets": +1,
+                    "Receivables_Turnover": -1,
+                    "Inventory_Turnover": -1,
+                    "Asset_Turnover": -1,
+                    "ROA": -1,
+                    "ROE": -1,
+                    "EBIT_to_Assets": -1,
+                    "Operating_Income_to_Debt": -1,
+                    "Net_Profit_Margin": -1,
+                    "Gross_Margin": -1,
+                    "Interest_Coverage": -1,
+                    "EBITDA_to_Interest": -1,
+                    "Total_Debt_to_EBITDA": +1
+                }
+                # Append sign annotation to feature names if a monotonic direction is known
+                def _sign_label(feat: str) -> str:
+                    sign = orientation_map.get(feat)
+                    if sign is None:
+                        return str(feat)
+                    return f"{feat} (+)" if sign > 0 else f"{feat} (-)"
+                shap_df["FeatureLabel"] = shap_df["Feature"].apply(_sign_label)
+                # Determine bar colours based on SHAP sign: red for risk-increasing contribution, blue for risk-reducing
                 colors = ["#E24A33" if v < 0 else "#1F77B4" for v in shap_df["SHAP"]]
                 fig_sh = go.Figure()
                 fig_sh.add_trace(go.Bar(
                     x=shap_df["SHAP"],
-                    y=shap_df["Feature"].astype(str),
+                    y=shap_df["FeatureLabel"],
                     orientation="h",
                     marker_color=colors,
                     text=[f"{v:+.3f}" for v in shap_df["SHAP"]],
