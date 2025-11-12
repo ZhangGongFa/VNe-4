@@ -203,80 +203,17 @@ with st.sidebar:
             st.session_state.current_lang = LANG_EN
             st.rerun()
     
-    # Section: select ticker and year
     st.markdown("---")
     st.header(get_text("sidebar_ticker_header", st.session_state.current_lang))
-
-    # Ticker selection
+    
     tickers = sorted(feats_df["Ticker"].astype(str).unique().tolist())
     ticker = st.selectbox(get_text("select_ticker", st.session_state.current_lang), tickers, index=0 if tickers else None, key="sb_ticker")
-
-    # Year selection (default to latest available year for the selected ticker)
+    
     years_avail = sorted(feats_df.loc[feats_df["Ticker"].astype(str)==ticker, "Year"].dropna().astype(int).unique().tolist())
     year_idx = len(years_avail)-1 if years_avail else 0
     year = st.selectbox(get_text("select_year", st.session_state.current_lang), years_avail, index=year_idx, key=f"sb_year_{ticker}")
-
-    # Immediately show a summary profile for the selected company to improve discoverability
-    # Compute the summary row from the raw dataset
-    row_raw_sm = raw_df[(raw_df["Ticker"].astype(str) == str(ticker)) & (raw_df["Year"] == year)]
-    row_raw_sm = row_raw_sm.iloc[0] if not row_raw_sm.empty else None
-    if row_raw_sm is not None:
-        def _get_raw_info(col_names, default=np.nan):
-            for col in col_names:
-                if col in row_raw_sm.index and pd.notna(row_raw_sm[col]):
-                    x = row_raw_sm[col]
-                    try:
-                        if isinstance(x, str):
-                            x = x.replace(",", "")
-                        return float(x)
-                    except Exception:
-                        continue
-            return default
-        assets_sm = _get_raw_info(["TOTAL ASSETS (Bn. VND)", "Total_Assets"])
-        equity_sm = _get_raw_info(["OWNER'S EQUITY(Bn.VND)", "Equity"])
-        curr_liab_sm = _get_raw_info(["Current liabilities (Bn. VND)", "Current_Liabilities"], 0.0)
-        long_liab_sm = _get_raw_info(["Long-term liabilities (Bn. VND)", "Long_Term_Liabilities"], 0.0)
-        debt_sm = (curr_liab_sm or 0.0) + (long_liab_sm or 0.0)
-        if "Total_Debt" in row_raw_sm.index and pd.notna(row_raw_sm.get("Total_Debt")):
-            try:
-                debt_sm = float(str(row_raw_sm.get("Total_Debt")).replace(",", ""))
-            except Exception:
-                pass
-        ex = (str(row_raw_sm.get("Exchange", "")) or "-").upper()
-        sec_raw = str(row_raw_sm.get("Sector", "")).strip()
-        sec = sec_raw if sec_raw else "-"
-        assets_disp = fmt_money(assets_sm)
-        equity_disp = fmt_money(equity_sm)
-        debt_disp = fmt_money(debt_sm)
-        lang_cur = st.session_state.current_lang
-        if lang_cur == LANG_VI:
-            card_html = f"""
-            <div style='background-color:#E8F1FB;border:1px solid #cbd5e1;border-radius:10px;padding:12px;margin-top:6px;'>
-              <div style='font-weight:600;font-size:15px;margin-bottom:6px;'>{get_text('profile_header', lang_cur)}</div>
-              <div><strong>Sàn:</strong> {ex}</div>
-              <div><strong>Ngành:</strong> {sec}</div>
-              <div><strong>{get_text('metric_total_assets', lang_cur)}:</strong> {assets_disp}</div>
-              <div><strong>{get_text('metric_equity', lang_cur)}:</strong> {equity_disp}</div>
-              <div><strong>{get_text('metric_debt', lang_cur)}:</strong> {debt_disp}</div>
-            </div>
-            """
-        else:
-            card_html = f"""
-            <div style='background-color:#E8F1FB;border:1px solid #cbd5e1;border-radius:10px;padding:12px;margin-top:6px;'>
-              <div style='font-weight:600;font-size:15px;margin-bottom:6px;'>{get_text('profile_header', lang_cur)}</div>
-              <div><strong>Exchange:</strong> {ex}</div>
-              <div><strong>Sector:</strong> {sec}</div>
-              <div><strong>{get_text('metric_total_assets', lang_cur)}:</strong> {assets_disp}</div>
-              <div><strong>{get_text('metric_equity', lang_cur)}:</strong> {equity_disp}</div>
-              <div><strong>{get_text('metric_debt', lang_cur)}:</strong> {debt_disp}</div>
-            </div>
-            """
-        st.markdown(card_html, unsafe_allow_html=True)
-    else:
-        st.info(get_text("warning_no_data", st.session_state.current_lang))
-
+    
     st.markdown("---")
-    # Section: report type selection
     st.header(get_text("sidebar_report_header", st.session_state.current_lang))
 
     # Initialize session state for report selection
@@ -293,6 +230,71 @@ with st.sidebar:
 
     st.markdown("---")
 
+    # Display a brief company summary below the report selection. This replaces the generic description box.
+    # Attempt to extract key figures (exchange, sector, total assets, equity and total debt) for the selected ticker/year.
+    row_raw_sm = raw_df[(raw_df["Ticker"].astype(str) == str(ticker)) & (raw_df["Year"] == year)]
+    row_raw_sm = row_raw_sm.iloc[0] if not row_raw_sm.empty else None
+    if row_raw_sm is not None:
+        # Helper to extract numeric values from a row given multiple column aliases
+        def _get_raw_info(col_names, default=np.nan):
+            for col in col_names:
+                if col in row_raw_sm.index and pd.notna(row_raw_sm[col]):
+                    x = row_raw_sm[col]
+                    try:
+                        # remove thousand separators if present
+                        if isinstance(x, str):
+                            x = x.replace(",", "")
+                        return float(x)
+                    except Exception:
+                        continue
+            return default
+        assets_sm = _get_raw_info(["TOTAL ASSETS (Bn. VND)", "Total_Assets"])
+        equity_sm = _get_raw_info(["OWNER'S EQUITY(Bn.VND)", "Equity"])
+        curr_liab_sm = _get_raw_info(["Current liabilities (Bn. VND)", "Current_Liabilities"], 0.0)
+        long_liab_sm = _get_raw_info(["Long-term liabilities (Bn. VND)", "Long_Term_Liabilities"], 0.0)
+        # Compute debt as sum of current and long-term liabilities unless an explicit Total_Debt column exists
+        debt_sm = (curr_liab_sm or 0.0) + (long_liab_sm or 0.0)
+        if "Total_Debt" in row_raw_sm.index and pd.notna(row_raw_sm.get("Total_Debt")):
+            try:
+                debt_sm = float(str(row_raw_sm.get("Total_Debt")).replace(",", ""))
+            except Exception:
+                pass
+        # Exchange and sector information
+        ex = (str(row_raw_sm.get("Exchange", "")) or "-").upper()
+        # Prefer raw sector if available; otherwise fall back to bucketised sector
+        sec_raw = str(row_raw_sm.get("Sector", "")).strip()
+        sec = sec_raw if sec_raw else "-"
+        # Format numeric values for display
+        assets_disp = fmt_money(assets_sm)
+        equity_disp = fmt_money(equity_sm)
+        debt_disp = fmt_money(debt_sm)
+        lang_cur = st.session_state.current_lang
+        # Build a styled card for the company profile. Each field is separated into its own line for better readability.
+        if lang_cur == LANG_VI:
+            card_html = f"""
+            <div style='background-color:#E8F1FB;border:1px solid #cbd5e1;border-radius:10px;padding:12px;margin-top:6px;'>
+              <div style='font-weight:600;font-size:15px;margin-bottom:6px;'>Hồ sơ doanh nghiệp</div>
+              <div><strong>Sàn:</strong> {ex}</div>
+              <div><strong>Ngành:</strong> {sec}</div>
+              <div><strong>Tổng tài sản:</strong> {assets_disp}</div>
+              <div><strong>Vốn chủ sở hữu:</strong> {equity_disp}</div>
+              <div><strong>Tổng nợ:</strong> {debt_disp}</div>
+            </div>
+            """
+        else:
+            card_html = f"""
+            <div style='background-color:#E8F1FB;border:1px solid #cbd5e1;border-radius:10px;padding:12px;margin-top:6px;'>
+              <div style='font-weight:600;font-size:15px;margin-bottom:6px;'>Company profile</div>
+              <div><strong>Exchange:</strong> {ex}</div>
+              <div><strong>Sector:</strong> {sec}</div>
+              <div><strong>Total assets:</strong> {assets_disp}</div>
+              <div><strong>Equity:</strong> {equity_disp}</div>
+              <div><strong>Total debt:</strong> {debt_disp}</div>
+            </div>
+            """
+        st.markdown(card_html, unsafe_allow_html=True)
+    else:
+        st.info(get_text("warning_no_data", st.session_state.current_lang))
 
 # ---------- Get selected data ----------
 row_model = feats_df[(feats_df["Ticker"].astype(str)==ticker) & (feats_df["Year"]==year)]
@@ -358,15 +360,12 @@ st.markdown("---")
 
 # ---------- Render based on selected report type ----------
 try:
-    # Wrap rendering in a spinner to indicate loading when switching reports or tickers
-    spinner_msg = "Đang tải dữ liệu..." if st.session_state.current_lang == LANG_VI else "Loading data..."
-    with st.spinner(spinner_msg):
-        if st.session_state.report_tab == "Finance":
-            financial.render(feats_df, raw_df, ticker, year, model, thresholds, sector_bucket, final_features)
-        elif st.session_state.report_tab == "Sentiment":
-            sentiment.render(feats_df, raw_df, ticker, year, model, thresholds, sector_bucket, final_features)
-        elif st.session_state.report_tab == "Summary":
-            summary.render(feats_df, raw_df, ticker, year, model, thresholds, sector_bucket, final_features)
+    if st.session_state.report_tab == "Finance":
+        financial.render(feats_df, raw_df, ticker, year, model, thresholds, sector_bucket, final_features)
+    elif st.session_state.report_tab == "Sentiment":
+        sentiment.render(feats_df, raw_df, ticker, year, model, thresholds, sector_bucket, final_features)
+    elif st.session_state.report_tab == "Summary":
+        summary.render(feats_df, raw_df, ticker, year, model, thresholds, sector_bucket, final_features)
 except Exception as e:
     st.error(f"Lỗi khi hiển thị tab {st.session_state.report_tab}: {str(e)}")
     st.exception(e)
