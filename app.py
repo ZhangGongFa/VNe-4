@@ -269,11 +269,30 @@ with st.sidebar:
         equity_disp = fmt_money(equity_sm)
         debt_disp = fmt_money(debt_sm)
         lang_cur = st.session_state.current_lang
+        # Build a styled card for the company profile. Each field is separated into its own line for better readability.
         if lang_cur == LANG_VI:
-            summary_text = f"**Hồ sơ doanh nghiệp**\n• Sàn: {ex}\n• Ngành: {sec}\n• Tổng tài sản: {assets_disp}\n• Vốn chủ sở hữu: {equity_disp}\n• Tổng nợ: {debt_disp}"
+            card_html = f"""
+            <div style='background-color:#E8F1FB;border:1px solid #cbd5e1;border-radius:10px;padding:12px;margin-top:6px;'>
+              <div style='font-weight:600;font-size:15px;margin-bottom:6px;'>Hồ sơ doanh nghiệp</div>
+              <div><strong>Sàn:</strong> {ex}</div>
+              <div><strong>Ngành:</strong> {sec}</div>
+              <div><strong>Tổng tài sản:</strong> {assets_disp}</div>
+              <div><strong>Vốn chủ sở hữu:</strong> {equity_disp}</div>
+              <div><strong>Tổng nợ:</strong> {debt_disp}</div>
+            </div>
+            """
         else:
-            summary_text = f"**Company profile**\n• Exchange: {ex}\n• Sector: {sec}\n• Total assets: {assets_disp}\n• Equity: {equity_disp}\n• Total debt: {debt_disp}"
-        st.info(summary_text)
+            card_html = f"""
+            <div style='background-color:#E8F1FB;border:1px solid #cbd5e1;border-radius:10px;padding:12px;margin-top:6px;'>
+              <div style='font-weight:600;font-size:15px;margin-bottom:6px;'>Company profile</div>
+              <div><strong>Exchange:</strong> {ex}</div>
+              <div><strong>Sector:</strong> {sec}</div>
+              <div><strong>Total assets:</strong> {assets_disp}</div>
+              <div><strong>Equity:</strong> {equity_disp}</div>
+              <div><strong>Total debt:</strong> {debt_disp}</div>
+            </div>
+            """
+        st.markdown(card_html, unsafe_allow_html=True)
     else:
         st.info(get_text("warning_no_data", st.session_state.current_lang))
 
