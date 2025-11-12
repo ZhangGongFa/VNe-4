@@ -554,16 +554,8 @@ def render(feats_df: pd.DataFrame, raw_df: pd.DataFrame, ticker: str, year: int,
         # Update session state if radio selection differs
         if sel_model_radio != model_options[st.session_state['pd_model_idx']]:
             st.session_state['pd_model_idx'] = model_options.index(sel_model_radio)
-        # Provide arrow buttons for carousel navigation
+        # Determine current, previous and next models based solely on the radio selection.
         total_models = len(model_options)
-        arrow_cols = st.columns([1, 6, 1])
-        with arrow_cols[0]:
-            if st.button("◀", key="pd_carousel_left"):
-                st.session_state['pd_model_idx'] = (st.session_state['pd_model_idx'] - 1) % total_models
-        with arrow_cols[2]:
-            if st.button("▶", key="pd_carousel_right"):
-                st.session_state['pd_model_idx'] = (st.session_state['pd_model_idx'] + 1) % total_models
-        # Determine current, previous and next models based on the selected index
         sel_idx = st.session_state['pd_model_idx']
         prev_idx = (sel_idx - 1) % total_models
         next_idx = (sel_idx + 1) % total_models
@@ -641,10 +633,14 @@ def render(feats_df: pd.DataFrame, raw_df: pd.DataFrame, ticker: str, year: int,
             fig_next.update_layout(height=160, margin=dict(l=10, r=10, t=10, b=10), transition=transition_opts)
             st.plotly_chart(fig_next, use_container_width=True, key="pd_carousel_next")
         # Display model performance table, comparison chart and pros/cons below the gauges
+        # Performance metrics derived from the attached research article.
+        # See the submitted Eureka report for details.
         perf_df = pd.DataFrame({
             'Model': ['LightGBM*', 'XGBoost', 'CatBoost', 'AdaBoost'],
-            'F1-Score': [0.948, 0.91, 0.899, 0.786],
-            'Accuracy': [0.95, 0.92, 0.91, 0.80],
+            # F1-scores (balanced) across models with sentiment enrichment
+            'F1-Score': [0.948, 0.910, 0.899, 0.786],
+            # Accuracies from the article (LightGBM=0.9881, XGBoost=0.9771, CatBoost=0.9766, AdaBoost=0.9518)
+            'Accuracy': [0.988, 0.977, 0.977, 0.952],
         })
         if lang == 'vi':
             perf_df = perf_df.rename(columns={'Model': 'Mô hình', 'F1-Score': 'F1-Score', 'Accuracy': 'Độ chính xác'})
