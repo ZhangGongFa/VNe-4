@@ -467,9 +467,47 @@ def render(feats_df: pd.DataFrame, raw_df: pd.DataFrame, ticker: str, year: int,
         parents_asset = ['', root_asset, current_assets_label, current_assets_label, current_assets_label, current_assets_label, root_asset, noncurrent_assets_label, noncurrent_assets_label, noncurrent_assets_label]
         values_asset = [max(total_assets_year,0.0), max(current_assets_year,0.0), max(cash_year,0.0), max(receivables_year,0.0), max(inventories_year,0.0), max(other_current_year,0.0),
                         max(noncurrent_total,0.0), max(fixed_assets_year,0.0), max(long_inv_year,0.0), max(other_noncurrent_year,0.0)]
-        fig_sun_asset = go.Figure(go.Sunburst(labels=labels_asset, parents=parents_asset, values=values_asset, branchvalues='total'))
-        fig_sun_asset.update_layout(title=("Cây phân rã tài sản" if lang == 'vi' else "Asset Breakdown"), height=450, margin=dict(t=40, l=0, r=0, b=0))
+        fig_sun_asset = go.Figure(go.Sunburst(
+            labels=labels_asset,
+            parents=parents_asset,
+            values=values_asset,
+            branchvalues='total'
+        ))
+        fig_sun_asset.update_layout(
+            title=("Cây phân rã tài sản" if lang == 'vi' else "Asset Breakdown"),
+            height=450,
+            margin=dict(t=40, l=0, r=0, b=0)
+        )
         st.plotly_chart(fig_sun_asset, use_container_width=True, key="finance_balance_asset_sunburst")
+
+        # --- Add narrative commentary on asset composition ---
+        tot_assets_safe = total_assets_year if total_assets_year and total_assets_year > 0 else 1.0
+        curr_assets_share = (current_assets_year / tot_assets_safe) if current_assets_year else 0.0
+        noncurr_assets_share = (noncurrent_total / tot_assets_safe) if noncurrent_total else 0.0
+        cash_share = (cash_year / tot_assets_safe) if cash_year else 0.0
+        receivables_share = (receivables_year / tot_assets_safe) if receivables_year else 0.0
+        inventory_share = (inventories_year / tot_assets_safe) if inventories_year else 0.0
+        other_current_share = (other_current_year / tot_assets_safe) if other_current_year else 0.0
+        fixed_share = (fixed_assets_year / tot_assets_safe) if fixed_assets_year else 0.0
+        longinv_share = (long_inv_year / tot_assets_safe) if long_inv_year else 0.0
+        other_non_share = (other_noncurrent_year / tot_assets_safe) if other_noncurrent_year else 0.0
+        if lang == 'vi':
+            narrative_asset = (
+                f"**Phân tích tài sản:** Tài sản ngắn hạn chiếm {curr_assets_share*100:.1f}% tổng tài sản, "
+                f"bao gồm tiền {cash_share*100:.1f}%, phải thu {receivables_share*100:.1f}%, tồn kho {inventory_share*100:.1f}% "
+                f"và tài sản ngắn hạn khác {other_current_share*100:.1f}%. "
+                f"Tài sản dài hạn chiếm {noncurr_assets_share*100:.1f}%, trong đó tài sản cố định {fixed_share*100:.1f}%, "
+                f"đầu tư dài hạn {longinv_share*100:.1f}% và tài sản dài hạn khác {other_non_share*100:.1f}%."
+            )
+        else:
+            narrative_asset = (
+                f"**Asset composition analysis:** Current assets account for {curr_assets_share*100:.1f}% of total assets, "
+                f"including cash {cash_share*100:.1f}%, accounts receivable {receivables_share*100:.1f}%, inventories {inventory_share*100:.1f}% "
+                f"and other current assets {other_current_share*100:.1f}%. "
+                f"Non-current assets comprise {noncurr_assets_share*100:.1f}%, with fixed assets {fixed_share*100:.1f}%, long-term investments {longinv_share*100:.1f}% "
+                f"and other non-current assets {other_non_share*100:.1f}%."
+            )
+        st.markdown(narrative_asset)
 
         # -------- Sunburst: Liabilities & Equity --------
         total_liabilities_year = to_num(row_raw.get('LIABILITIES (Bn. VND)'))
@@ -485,18 +523,71 @@ def render(feats_df: pd.DataFrame, raw_df: pd.DataFrame, ticker: str, year: int,
         other_equity_year = max(total_equity_year - (capital_reserves_year + undistributed_earnings_year), 0.0)
 
         if total_resources_year > 0:
+            # Build labels and values for liability & equity sunburst
             root_liab = 'Tổng Nợ & Vốn' if lang == 'vi' else 'Total Liabilities & Equity'
             liabilities_label = 'Nợ' if lang == 'vi' else 'Liabilities'
             equity_label = 'Vốn' if lang == 'vi' else 'Equity'
-            labels_liab = [root_liab, liabilities_label, ('Nợ ngắn hạn' if lang == 'vi' else 'Current Liabilities'), ('Nợ dài hạn' if lang == 'vi' else 'Long-term Liabilities'),
-                           ('Nợ khác' if lang == 'vi' else 'Other Liabilities'), equity_label, ('Vốn & Quỹ' if lang == 'vi' else 'Capital & Reserves'),
-                           ('LN chưa phân phối' if lang == 'vi' else 'Undistributed Earnings'), ('Vốn khác' if lang == 'vi' else 'Other Equity')]
-            parents_liab = ['', root_liab, liabilities_label, liabilities_label, liabilities_label, root_liab, equity_label, equity_label, equity_label]
-            values_liab = [max(total_resources_year,0.0), max(total_liabilities_year,0.0), max(current_liabilities_year,0.0), max(long_liabilities_year,0.0),
-                           max(other_liabilities_year,0.0), max(total_equity_year,0.0), max(capital_reserves_year,0.0), max(undistributed_earnings_year,0.0), max(other_equity_year,0.0)]
-            fig_sun_liab = go.Figure(go.Sunburst(labels=labels_liab, parents=parents_liab, values=values_liab, branchvalues='total'))
-            fig_sun_liab.update_layout(title=("Cây phân rã Nợ & Vốn" if lang == 'vi' else "Liability & Equity Breakdown"), height=450, margin=dict(t=40, l=0, r=0, b=0))
+            labels_liab = [root_liab, liabilities_label,
+                           ('Nợ ngắn hạn' if lang == 'vi' else 'Current Liabilities'),
+                           ('Nợ dài hạn' if lang == 'vi' else 'Long-term Liabilities'),
+                           ('Nợ khác' if lang == 'vi' else 'Other Liabilities'),
+                           equity_label,
+                           ('Vốn & Quỹ' if lang == 'vi' else 'Capital & Reserves'),
+                           ('LN chưa phân phối' if lang == 'vi' else 'Undistributed Earnings'),
+                           ('Vốn khác' if lang == 'vi' else 'Other Equity')]
+            parents_liab = ['', root_liab, liabilities_label, liabilities_label, liabilities_label,
+                            root_liab, equity_label, equity_label, equity_label]
+            values_liab = [
+                max(total_resources_year, 0.0),
+                max(total_liabilities_year, 0.0),
+                max(current_liabilities_year, 0.0),
+                max(long_liabilities_year, 0.0),
+                max(other_liabilities_year, 0.0),
+                max(total_equity_year, 0.0),
+                max(capital_reserves_year, 0.0),
+                max(undistributed_earnings_year, 0.0),
+                max(other_equity_year, 0.0),
+            ]
+            # Create sunburst for liabilities and equity
+            fig_sun_liab = go.Figure(go.Sunburst(
+                labels=labels_liab,
+                parents=parents_liab,
+                values=values_liab,
+                branchvalues='total'
+            ))
+            fig_sun_liab.update_layout(
+                title=("Cây phân rã Nợ & Vốn" if lang == 'vi' else "Liability & Equity Breakdown"),
+                height=450,
+                margin=dict(t=40, l=0, r=0, b=0)
+            )
             st.plotly_chart(fig_sun_liab, use_container_width=True, key="finance_balance_liab_sunburst")
+
+            # --- Add narrative commentary about capital structure ---
+            # Compute shares for liabilities and equity relative to total resources
+            total_res_safe = total_resources_year if total_resources_year and total_resources_year > 0 else 1.0
+            liab_share = (total_liabilities_year / total_res_safe) if total_liabilities_year else 0.0
+            eq_share = (total_equity_year / total_res_safe) if total_equity_year else 0.0
+            curr_liab_share = (current_liabilities_year / total_res_safe) if current_liabilities_year else 0.0
+            long_liab_share = (long_liabilities_year / total_res_safe) if long_liabilities_year else 0.0
+            other_liab_share = (other_liabilities_year / total_res_safe) if other_liabilities_year else 0.0
+            cap_res_share = (capital_reserves_year / total_res_safe) if capital_reserves_year else 0.0
+            undis_share = (undistributed_earnings_year / total_res_safe) if undistributed_earnings_year else 0.0
+            other_eq_share = (other_equity_year / total_res_safe) if other_equity_year else 0.0
+            # Build commentary text
+            if lang == 'vi':
+                narrative = (
+                    f"**Phân tích nguồn vốn:** Tổng nợ chiếm khoảng {liab_share*100:.1f}% tổng nguồn vốn, "
+                    f"trong đó nợ ngắn hạn {curr_liab_share*100:.1f}%, nợ dài hạn {long_liab_share*100:.1f}% và nợ khác {other_liab_share*100:.1f}%. "
+                    f"Vốn chủ sở hữu chiếm {eq_share*100:.1f}%, bao gồm {cap_res_share*100:.1f}% vốn & quỹ, {undis_share*100:.1f}% lợi nhuận chưa phân phối "
+                    f"và {other_eq_share*100:.1f}% vốn khác."
+                )
+            else:
+                narrative = (
+                    f"**Capital structure analysis:** Liabilities account for about {liab_share*100:.1f}% of total capital, "
+                    f"with current liabilities at {curr_liab_share*100:.1f}%, long-term liabilities at {long_liab_share*100:.1f}% and other liabilities at {other_liab_share*100:.1f}%. "
+                    f"Equity makes up {eq_share*100:.1f}%, comprising {cap_res_share*100:.1f}% capital & reserves, {undis_share*100:.1f}% undistributed earnings and {other_eq_share*100:.1f}% other equity."
+                )
+            st.markdown(narrative)
         else:
             st.info("Không có dữ liệu để hiển thị cây phân rã nợ & vốn" if lang == 'vi' else "Insufficient data for liability & equity breakdown")
 

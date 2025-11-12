@@ -247,6 +247,11 @@ TEXTS = {
         LANG_VI: "Sàn Giao Dịch",
         LANG_EN: "Exchange"
     },
+    # Prompt text for selecting which model PD gauge to display
+    "pd_model_selection": {
+        LANG_VI: "Chọn mô hình",
+        LANG_EN: "Select model"
+    },
     "summary_section_shap": {
         LANG_VI: "C. Giải Thích Mô Hình (SHAP)",
         LANG_EN: "C. Model Explainability (SHAP)"
