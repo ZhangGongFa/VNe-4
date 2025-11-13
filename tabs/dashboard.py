@@ -79,14 +79,13 @@ def render(feats_df: pd.DataFrame, raw_df: pd.DataFrame) -> None:
         này mang lại góc nhìn toàn diện về sức khỏe doanh nghiệp và hỗ trợ nhà đầu
         tư ra quyết định một cách khoa học.</p>
         <h3>📈 Thị trường chứng khoán Việt Nam</h3>
-        <p>Theo dữ liệu năm&nbsp;2025, Việt Nam có <strong>393 công ty niêm yết</strong> với
+        <p>Theo dữ liệu năm&nbsp;2025, thị trường chứng khoán Việt Nam đạt
         <strong>tổng vốn hóa khoảng 220&nbsp;tỷ USD</strong>, tương đương <strong>51,2&nbsp;% GDP</strong>.
-        Sàn Giao dịch Chứng khoán TP.&nbsp;HCM (HoSE) khởi đầu năm&nbsp;2000 với chỉ hai
-        doanh nghiệp và sáu công ty chứng khoán, nhưng nay đã trở thành trung tâm
-        huy động vốn quan trọng cho nền kinh tế.  Tốc độ phát triển nhanh chóng
-        và tầm quan trọng ngày càng tăng của thị trường là lý do chúng tôi xây dựng
-        công cụ AI này – giúp nhà đầu tư và tổ chức tài chính đánh giá rủi ro một
-        cách khách quan.</p>
+        Sàn Giao dịch Chứng khoán TP.&nbsp;HCM (HoSE) khởi đầu năm&nbsp;2000 với chỉ hai doanh nghiệp
+        và sáu công ty chứng khoán, nhưng nay đã trở thành trung tâm huy động vốn quan trọng cho
+        nền kinh tế.  Tốc độ phát triển nhanh chóng và tầm quan trọng ngày càng tăng của thị trường
+        là lý do chúng tôi xây dựng công cụ AI này – giúp nhà đầu tư và tổ chức tài chính đánh giá
+        rủi ro một cách khách quan.</p>
         </div>
         """
         st.markdown(intro_html, unsafe_allow_html=True)
@@ -103,13 +102,13 @@ def render(feats_df: pd.DataFrame, raw_df: pd.DataFrame) -> None:
         comprehensive view of corporate health and helps investors make informed
         decisions.</p>
         <h3>📈 Vietnam stock market</h3>
-        <p>As of 2025, Vietnam has <strong>393 listed companies</strong> with a combined
-        market capitalisation of roughly <strong>USD 220 billion</strong>, equivalent to
+        <p>As of 2025, Vietnam's stock market has a
+        <strong>total capitalisation of about USD 220 billion</strong>, equivalent to
         <strong>51.2 % of GDP</strong>.  The Ho Chi Minh City Stock Exchange (HoSE) began
         in 2000 with just two listed companies and six member brokerages, but it
         has since grown into a key funding hub for the economy.  This rapid
-        development and the market's growing importance are why we built an AI‑powered
-        tool – to provide scientific, objective default‑risk assessment for
+        development and the market's growing importance are why we built an
+        AI‑powered tool – to provide scientific, objective default‑risk assessment for
         investors and financial institutions.</p>
         </div>
         """
@@ -147,6 +146,36 @@ def render(feats_df: pd.DataFrame, raw_df: pd.DataFrame) -> None:
         value=str(num_indicators),
         delta=None,
     )
+
+    # -------------------------------------------------------------------------
+    # How it works / Quy trình đánh giá
+    # Provide a concise, icon‑based overview of the AI scoring pipeline.  This
+    # section helps users understand the steps involved without overwhelming
+    # them with technical detail.  It adapts to the current language.
+    how_title_vi = "### 🔧 Quy trình đánh giá"
+    how_title_en = "### 🔧 How it works"
+    how_items_vi = [
+        ("📥", "Thu thập dữ liệu", "Thu thập số liệu tài chính và tin tức liên quan từ nhiều nguồn"),
+        ("🧮", "Xử lý & lựa chọn", "Chuẩn hóa, làm sạch và chọn lọc những chỉ số quan trọng"),
+        ("🤖", "Huấn luyện mô hình", "Huấn luyện các mô hình học máy LightGBM, XGBoost, CatBoost, AdaBoost"),
+        ("💡", "Tính điểm & phân tích", "Tính xác suất vỡ nợ, phân tích cảm xúc và đưa ra cảnh báo"),
+    ]
+    how_items_en = [
+        ("📥", "Data collection", "Gather financial data and related news from multiple sources"),
+        ("🧮", "Processing & selection", "Standardise, clean and select the most relevant indicators"),
+        ("🤖", "Model training", "Train LightGBM, XGBoost, CatBoost and AdaBoost models"),
+        ("💡", "Scoring & insights", "Compute default probabilities, analyse sentiment and provide alerts"),
+    ]
+    if lang == 'vi':
+        st.markdown(how_title_vi)
+        items = how_items_vi
+    else:
+        st.markdown(how_title_en)
+        items = how_items_en
+    cols = st.columns(len(items))
+    for col, (icon, title, desc) in zip(cols, items):
+        col.markdown(f"#### {icon} {title}")
+        col.markdown(f"<p style='font-size:0.85rem; line-height:1.3;'>{desc}</p>", unsafe_allow_html=True)
 
     # -------------------------------------------------------------------------
     # If there is no raw data, show an info message after introduction
