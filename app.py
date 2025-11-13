@@ -258,9 +258,31 @@ with st.sidebar:
     st.markdown("---")
     st.header(get_text("sidebar_ticker_header", st.session_state.current_lang))
 
-    # Ticker selection
-    tickers = sorted(feats_df["Ticker"].astype(str).unique().tolist())
-    ticker = st.selectbox(get_text("select_ticker", st.session_state.current_lang), tickers, index=0 if tickers else None, key="sb_ticker")
+    # Allow users to filter tickers by exchange for easier navigation.  When the
+    # dataset is large, a simple dropdown becomes unwieldy.  We first let
+    # users select an exchange (HOSE, HNX, UPCOM, etc.), then show only
+    # tickers for that exchange.  Selecting "All" returns the full list.
+    all_exchanges = sorted(raw_df['Exchange'].dropna().astype(str).unique().tolist())
+    exchange_options = ["All"] + all_exchanges
+    sel_exchange = st.selectbox(
+        get_text("select_exchange", st.session_state.current_lang),
+        exchange_options,
+        index=0,
+        key="sb_exchange"
+    )
+    if sel_exchange == "All":
+        tickers_filtered = sorted(feats_df["Ticker"].astype(str).unique().tolist())
+    else:
+        tickers_filtered = sorted(raw_df[raw_df['Exchange'].astype(str)==sel_exchange]['Ticker'].astype(str).unique().tolist())
+        # Fallback to all if none found
+        if not tickers_filtered:
+            tickers_filtered = sorted(feats_df["Ticker"].astype(str).unique().tolist())
+    ticker = st.selectbox(
+        get_text("select_ticker", st.session_state.current_lang),
+        tickers_filtered,
+        index=0 if tickers_filtered else None,
+        key="sb_ticker"
+    )
 
     # Year selection (default to latest available year for the selected ticker)
     years_avail = sorted(feats_df.loc[feats_df["Ticker"].astype(str)==ticker, "Year"].dropna().astype(int).unique().tolist())
@@ -359,17 +381,22 @@ with st.sidebar:
     st.header(get_text("sidebar_report_header", st.session_state.current_lang))
 
     # Initialize session state for report selection
-    # Default to the Finance tab on first load for a more natural workflow.
+    # Default to the Dashboard tab on first load to give an overview.
     if 'report_tab' not in st.session_state:
-        st.session_state.report_tab = "Finance"
+        st.session_state.report_tab = "Dashboard"
 
     # Create vertical buttons for report selection. Each button spans full width to prevent text wrapping.
+    # Add a Home/Dashboard and Glossary buttons.
+    if st.button(get_text("btn_dashboard", st.session_state.current_lang), key="btn_dashboard", use_container_width=True):
+        st.session_state.report_tab = "Dashboard"
     if st.button(get_text("btn_finance", st.session_state.current_lang), key="btn_financial", use_container_width=True):
         st.session_state.report_tab = "Finance"
     if st.button(get_text("btn_sentiment", st.session_state.current_lang), key="btn_sentiment", use_container_width=True):
         st.session_state.report_tab = "Sentiment"
     if st.button(get_text("btn_summary", st.session_state.current_lang), key="btn_summary", use_container_width=True):
         st.session_state.report_tab = "Summary"
+    if st.button(get_text("btn_glossary", st.session_state.current_lang), key="btn_glossary", use_container_width=True):
+        st.session_state.report_tab = "Glossary"
 
     st.markdown("---")
 
@@ -423,25 +450,27 @@ current_ratio = safe_div(current_assets_raw, curr_liab)
 quick_ratio = safe_div((cash_raw or 0.0) + (receivables_raw or 0.0), curr_liab)
 
 # ---------- Display KPI cards ----------
-col1, col2, col3 = st.columns(3)
-
-with col1:
-    st.metric("ROA", fmt_ratio(roa))
-
-with col2:
-    st.metric("ROE", fmt_ratio(roe))
-
-with col3:
-    st.metric("Debt-to-Assets", fmt_ratio(dta))
-
-st.markdown("---")
+# Only show KPI cards when a specific ticker is selected (i.e. not on Dashboard/Glossary)
+if st.session_state.report_tab not in ["Dashboard", "Glossary"]:
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        st.metric("ROA", fmt_ratio(roa))
+    with col2:
+        st.metric("ROE", fmt_ratio(roe))
+    with col3:
+        st.metric("Debt-to-Assets", fmt_ratio(dta))
+    st.markdown("---")
 
 # ---------- Render based on selected report type ----------
 try:
     # Wrap rendering in a spinner to indicate loading when switching reports or tickers
     spinner_msg = "Đang tải dữ liệu..." if st.session_state.current_lang == LANG_VI else "Loading data..."
     with st.spinner(spinner_msg):
-        if st.session_state.report_tab == "Finance":
+        if st.session_state.report_tab == "Dashboard":
+            dashboard.render(feats_df, raw_df)
+        elif st.session_state.report_tab == "Glossary":
+            glossary.render()
+        elif st.session_state.report_tab == "Finance":
             financial.render(feats_df, raw_df, ticker, year, model, thresholds, sector_bucket, final_features)
         elif st.session_state.report_tab == "Sentiment":
             sentiment.render(feats_df, raw_df, ticker, year, model, thresholds, sector_bucket, final_features)

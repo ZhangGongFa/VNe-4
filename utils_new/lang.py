@@ -27,6 +27,10 @@ TEXTS = {
         LANG_VI: "Chọn năm",
         LANG_EN: "Select year"
     },
+    "select_exchange": {
+        LANG_VI: "Chọn sàn giao dịch",
+        LANG_EN: "Select exchange"
+    },
     "sidebar_report_header": {
         LANG_VI: "Loại Báo Cáo",
         LANG_EN: "Report Type"
@@ -43,6 +47,14 @@ TEXTS = {
         LANG_VI: "📈 Summary",
         LANG_EN: "📈 Summary"
     },
+    "btn_dashboard": {
+        LANG_VI: "🏠 Dashboard",
+        LANG_EN: "🏠 Dashboard"
+    },
+    "btn_glossary": {
+        LANG_VI: "ℹ️ Chú Giải",
+        LANG_EN: "ℹ️ Glossary"
+    },
     "desc_finance": {
         LANG_VI: "📊 **Phân Tích Tài Chính**\n\nXem báo cáo thu nhập, bảng cân đối kế toán, báo cáo lưu chuyển tiền mặt và các chỉ số tài chính chính.",
         LANG_EN: "📊 **Financial Analysis**\n\nView income statements, balance sheets, cash flow statements, and key financial indicators."
@@ -54,6 +66,26 @@ TEXTS = {
     "desc_summary": {
         LANG_VI: "📈 **Tóm Tắt Rủi Ro**\n\nXem các chỉ số rủi ro toàn diện và số liệu xác suất vỡ nợ.",
         LANG_EN: "📈 **Risk Summary**\n\nView comprehensive risk indicators and default probability metrics."
+    },
+
+    # --- Dashboard Tab ---
+    "dashboard_title": {
+        LANG_VI: "📊 Tổng Quan Thị Trường",
+        LANG_EN: "📊 Market Dashboard"
+    },
+    "dashboard_top_assets": {
+        LANG_VI: "Top 5 doanh nghiệp theo tổng tài sản (năm {year})",
+        LANG_EN: "Top 5 companies by total assets (year {year})"
+    },
+    "dashboard_avg_trend": {
+        LANG_VI: "Xu hướng doanh thu & lợi nhuận trung bình",
+        LANG_EN: "Average revenue & profit trend"
+    },
+
+    # --- Glossary Tab ---
+    "glossary_title": {
+        LANG_VI: "ℹ️ Chú Giải & Hướng Dẫn",
+        LANG_EN: "ℹ️ Glossary & Help"
     },
     "warning_no_data": {
         LANG_VI: "Không có dữ liệu cho Ticker & Năm đã chọn.",

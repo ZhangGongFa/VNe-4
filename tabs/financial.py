@@ -414,6 +414,60 @@ def render(feats_df: pd.DataFrame, raw_df: pd.DataFrame, ticker: str, year: int,
                 narrative_income += f"Average gross margin {avg_gm:.1f}%, operating margin {avg_om:.1f}% and net margin {avg_nm:.1f}%."
             st.markdown(narrative_income)
 
+        # ===================
+        # Comparison section
+        # Many users want to compare multiple tickers side by side.  Provide
+        # a multi‑select widget to choose up to three tickers and plot their
+        # revenue and net profit trends on a single chart.  When nothing is
+        # selected the chart is hidden.  This feature turns the static
+        # reporting into an exploratory tool.
+        st.markdown("---")
+        st.markdown("**" + ("So sánh đa mã" if lang=='vi' else "Compare multiple tickers") + "**")
+        all_tickers = sorted(raw_df['Ticker'].dropna().astype(str).unique())
+        compare_tickers = st.multiselect(
+            ("Chọn tối đa 3 mã cổ phiếu" if lang=='vi' else "Select up to 3 tickers"),
+            options=all_tickers,
+            default=[],
+            max_selections=3,
+            key="compare_multi_select"
+        )
+        if compare_tickers:
+            # Limit number of tickers to avoid overcrowding
+            compare_tickers = compare_tickers[:3]
+            # Build a combined dataframe of revenue and net profit for each ticker
+            compare_df_list = []
+            for tk in compare_tickers:
+                tk_raw = raw_df[raw_df['Ticker'].astype(str)==str(tk)].copy()
+                # Keep only Year, Revenue and Net Profit columns
+                rev_col = 'Net Sales' if 'Net Sales' in tk_raw.columns else ('Revenue' if 'Revenue' in tk_raw.columns else 'Revenue (Bn. VND)')
+                np_col = 'Net Profit For the Year' if 'Net Profit For the Year' in tk_raw.columns else 'Net Profit'
+                tk_raw['Revenue'] = tk_raw[rev_col].apply(lambda v: to_num(v))
+                tk_raw['NetProfit'] = tk_raw[np_col].apply(lambda v: to_num(v))
+                tk_raw['Ticker'] = str(tk)
+                compare_df_list.append(tk_raw[['Year','Ticker','Revenue','NetProfit']])
+            if compare_df_list:
+                combo = pd.concat(compare_df_list, ignore_index=True)
+                # Build interactive plot
+                fig_comp = go.Figure()
+                for tk in compare_tickers:
+                    sub = combo[combo['Ticker']==tk]
+                    years_comp = sub['Year'].astype(str).tolist()
+                    rev_comp = sub['Revenue'].tolist()
+                    np_comp = sub['NetProfit'].tolist()
+                    # Choose distinct colours automatically from Plotly palette
+                    fig_comp.add_trace(go.Scatter(name=f"{tk} - {get_text('metric_revenue', lang)}", x=years_comp, y=rev_comp, mode='lines+markers'))
+                    fig_comp.add_trace(go.Scatter(name=f"{tk} - {get_text('metric_net_profit', lang)}", x=years_comp, y=np_comp, mode='lines+markers'))
+                fig_comp.update_layout(
+                    title=("So sánh doanh thu & lợi nhuận" if lang=='vi' else "Revenue & Net Profit Comparison"),
+                    height=350,
+                    legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
+                )
+                st.plotly_chart(fig_comp, use_container_width=True, key="finance_multi_comparison_chart")
+                # Provide a CSV download of the comparison data
+                csv_data = combo.to_csv(index=False).encode('utf-8')
+                download_label = "Tải dữ liệu so sánh" if lang=='vi' else "Download comparison data"
+                st.download_button(download_label, data=csv_data, file_name="comparison_data.csv", mime="text/csv", key="compare_download_btn")
+
     # ----------------- TAB 2: BALANCE SHEET -----------------
     with tab2:
         st.markdown(f"### {get_text('balance_sheet_title', lang)}")
