@@ -14,7 +14,7 @@ from utils_new.model_scoring import load_lgbm_model, model_feature_names, explai
 from utils_new.policy import load_thresholds, thresholds_for_sector, classify_pd
 
 # ==== Import các tab chức năng ====
-from tabs import financial, sentiment, summary
+from tabs import financial, sentiment, summary, dashboard, glossary
 
 # ==== Import language configuration ====
 from utils_new.lang import LANG_VI, LANG_EN, get_text, T
@@ -469,7 +469,8 @@ try:
         if st.session_state.report_tab == "Dashboard":
             dashboard.render(feats_df, raw_df)
         elif st.session_state.report_tab == "Glossary":
-            glossary.render()
+            # Pass dataframes to glossary so it can display example charts
+            glossary.render(feats_df, raw_df)
         elif st.session_state.report_tab == "Finance":
             financial.render(feats_df, raw_df, ticker, year, model, thresholds, sector_bucket, final_features)
         elif st.session_state.report_tab == "Sentiment":

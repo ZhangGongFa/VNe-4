@@ -13,8 +13,18 @@ import streamlit as st
 
 from utils_new.lang import get_text
 
-def render() -> None:
-    """Render the glossary/help tab."""
+def render(feats_df=None, raw_df=None) -> None:
+    """
+    Render the glossary/help tab.
+
+    Parameters
+    ----------
+    feats_df: pd.DataFrame, optional
+        Features dataframe (unused here).
+    raw_df: pd.DataFrame, optional
+        Raw financial statement data.  When provided, the glossary will
+        display an example interactive chart using aggregate metrics.
+    """
     lang = st.session_state.current_lang
     st.header(get_text('glossary_title', lang))
     if lang == 'vi':
@@ -48,4 +58,45 @@ def render() -> None:
 - **Debt/Equity:** Debt divided by shareholders' equity, indicating the degree of financial leverage.
 - **CAGR (Compound Annual Growth Rate):** Average annual growth rate compounded over multiple years.
 
-""")
+    """)
+
+    # If raw data provided, show an example interactive chart for illustration
+    import pandas as pd
+    import numpy as np
+    import plotly.graph_objects as go
+    if raw_df is not None and not raw_df.empty:
+        try:
+            # Compute average ROA across all companies per year if available
+            # Attempt to read financial indicators similar to finance tab
+            fin_ind_df = None
+            # Try reading from session state or fallback paths
+            if 'fin_ind_df' in st.session_state:
+                fin_ind_df = st.session_state['fin_ind_df']
+            if fin_ind_df is None or fin_ind_df.empty:
+                import os
+                candidate_paths = [
+                    'financial_indicators.csv',
+                    os.path.join('..', 'financial_indicators.csv'),
+                    os.path.join(os.getcwd(), 'financial_indicators.csv'),
+                    '/home/oai/share/financial_indicators.csv'
+                ]
+                for pth in candidate_paths:
+                    try:
+                        if os.path.exists(pth):
+                            fin_ind_df = pd.read_csv(pth)
+                            break
+                    except Exception:
+                        continue
+            if fin_ind_df is not None and not fin_ind_df.empty:
+                # Group by year and compute mean ROA and ROE
+                summary = fin_ind_df.groupby('Year')[['ROA','ROE']].mean().reset_index()
+                years = summary['Year'].astype(str).tolist()
+                roa = summary['ROA'].tolist()
+                roe = summary['ROE'].tolist()
+                fig = go.Figure()
+                fig.add_trace(go.Scatter(x=years, y=roa, name='ROA', mode='lines+markers'))
+                fig.add_trace(go.Scatter(x=years, y=roe, name='ROE', mode='lines+markers'))
+                fig.update_layout(title=("Ví dụ xu hướng ROA/ROE" if lang=='vi' else "Example ROA/ROE Trend"), height=350, legend=dict(orientation='h', yanchor='bottom', y=1.02, xanchor='right', x=1))
+                st.plotly_chart(fig, use_container_width=True, key='glossary_example_chart')
+        except Exception:
+            pass

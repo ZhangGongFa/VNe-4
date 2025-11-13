@@ -7,6 +7,7 @@ import numpy as np
 import pandas as pd
 import streamlit as st
 import plotly.graph_objects as go
+import os
 from utils_new.lang import get_text
 
 def render(feats_df: pd.DataFrame, raw_df: pd.DataFrame, ticker: str, year: int,
@@ -434,34 +435,78 @@ def render(feats_df: pd.DataFrame, raw_df: pd.DataFrame, ticker: str, year: int,
         if compare_tickers:
             # Limit number of tickers to avoid overcrowding
             compare_tickers = compare_tickers[:3]
-            # Build a combined dataframe of revenue and net profit for each ticker
+            # Load financial indicators if available (cached in session state)
+            if 'fin_ind_df' not in st.session_state:
+                fin_ind_df = pd.DataFrame()
+                candidate_paths = [
+                    'financial_indicators.csv',
+                    os.path.join('..', 'financial_indicators.csv'),
+                    os.path.join(os.getcwd(), 'financial_indicators.csv'),
+                    '/home/oai/share/financial_indicators.csv'
+                ]
+                for pth in candidate_paths:
+                    try:
+                        if os.path.exists(pth):
+                            fin_ind_df = pd.read_csv(pth)
+                            break
+                    except Exception:
+                        continue
+                st.session_state['fin_ind_df'] = fin_ind_df
+            fin_ind_df = st.session_state['fin_ind_df']
+            # Build a combined dataframe of metrics for each ticker
             compare_df_list = []
             for tk in compare_tickers:
                 tk_raw = raw_df[raw_df['Ticker'].astype(str)==str(tk)].copy()
-                # Keep only Year, Revenue and Net Profit columns
                 rev_col = 'Net Sales' if 'Net Sales' in tk_raw.columns else ('Revenue' if 'Revenue' in tk_raw.columns else 'Revenue (Bn. VND)')
                 np_col = 'Net Profit For the Year' if 'Net Profit For the Year' in tk_raw.columns else 'Net Profit'
                 tk_raw['Revenue'] = tk_raw[rev_col].apply(lambda v: to_num(v))
                 tk_raw['NetProfit'] = tk_raw[np_col].apply(lambda v: to_num(v))
                 tk_raw['Ticker'] = str(tk)
-                compare_df_list.append(tk_raw[['Year','Ticker','Revenue','NetProfit']])
+                # Merge with financial indicators to get margins and ROA/ROE
+                if not fin_ind_df.empty:
+                    inds = fin_ind_df[fin_ind_df['Ticker'].astype(str)==str(tk)][['Year','Gross_Margin','Net_Profit_Margin','ROA','ROE']]
+                    merged = tk_raw.merge(inds, on='Year', how='left')
+                else:
+                    merged = tk_raw.copy()
+                    merged['Gross_Margin'] = np.nan
+                    merged['Net_Profit_Margin'] = np.nan
+                    merged['ROA'] = np.nan
+                    merged['ROE'] = np.nan
+                compare_df_list.append(merged[['Year','Ticker','Revenue','NetProfit','Gross_Margin','Net_Profit_Margin','ROA','ROE']])
             if compare_df_list:
                 combo = pd.concat(compare_df_list, ignore_index=True)
-                # Build interactive plot
+                # Let users choose which metric to compare
+                metric_options_vi = {
+                    'Doanh thu': 'Revenue',
+                    'Lợi nhuận ròng': 'NetProfit',
+                    'Biên lợi nhuận gộp': 'Gross_Margin',
+                    'Biên lợi nhuận ròng': 'Net_Profit_Margin',
+                    'ROA': 'ROA',
+                    'ROE': 'ROE'
+                }
+                metric_options_en = {
+                    'Revenue': 'Revenue',
+                    'Net profit': 'NetProfit',
+                    'Gross margin': 'Gross_Margin',
+                    'Net margin': 'Net_Profit_Margin',
+                    'ROA': 'ROA',
+                    'ROE': 'ROE'
+                }
+                metric_options = metric_options_vi if lang=='vi' else metric_options_en
+                metric_label = st.selectbox(
+                    ("Chọn chỉ số so sánh" if lang=='vi' else "Select metric to compare"),
+                    list(metric_options.keys()),
+                    key="compare_metric_select"
+                )
+                metric_col = metric_options[metric_label]
                 fig_comp = go.Figure()
                 for tk in compare_tickers:
                     sub = combo[combo['Ticker']==tk]
                     years_comp = sub['Year'].astype(str).tolist()
-                    rev_comp = sub['Revenue'].tolist()
-                    np_comp = sub['NetProfit'].tolist()
-                    # Choose distinct colours automatically from Plotly palette
-                    fig_comp.add_trace(go.Scatter(name=f"{tk} - {get_text('metric_revenue', lang)}", x=years_comp, y=rev_comp, mode='lines+markers'))
-                    fig_comp.add_trace(go.Scatter(name=f"{tk} - {get_text('metric_net_profit', lang)}", x=years_comp, y=np_comp, mode='lines+markers'))
-                fig_comp.update_layout(
-                    title=("So sánh doanh thu & lợi nhuận" if lang=='vi' else "Revenue & Net Profit Comparison"),
-                    height=350,
-                    legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
-                )
+                    values = sub[metric_col].tolist()
+                    fig_comp.add_trace(go.Scatter(name=f"{tk} - {metric_label}", x=years_comp, y=values, mode='lines+markers'))
+                title_text = ("So sánh " + metric_label.lower() if lang=='vi' else f"Comparison of {metric_label.lower()}")
+                fig_comp.update_layout(title=title_text, height=400, legend=dict(orientation='h', yanchor='bottom', y=1.02, xanchor='right', x=1))
                 st.plotly_chart(fig_comp, use_container_width=True, key="finance_multi_comparison_chart")
                 # Provide a CSV download of the comparison data
                 csv_data = combo.to_csv(index=False).encode('utf-8')
