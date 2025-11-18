@@ -46,7 +46,8 @@ import plotly.graph_objects as go
 # `utils_new.model_scoring` module do not expose that function.  The
 # quantile computation inside `_compute_pd_base` will handle its
 # absence gracefully.
-from utils_new.model_scoring import model_feature_names, explain_shap
+# Import align_features_to_model to ensure feature vectors match the model
+from utils_new.model_scoring import model_feature_names, explain_shap, align_features_to_model
 from utils_new.lang import get_text
 
 __all__ = ["render"]
@@ -685,11 +686,15 @@ def render(feats_df: pd.DataFrame, raw_df: pd.DataFrame, ticker: str, year: int,
     lang = st.session_state.get('current_lang', 'vi')
     st.subheader(get_text("summary_section_shap", lang))
     # Prepare aligned features for SHAP computation
-    shap_feats = [f for f in final_features if f in row_model.index]
-    X_shap = pd.DataFrame([{f: float(row_model.get(f, 0.0)) for f in shap_feats}], columns=shap_feats)
+    # Use the model's feature names if available; otherwise fall back to the selected final features
+    feats_for_shap = model_feature_names(model) or final_features
+    # Construct a single-row DataFrame from the current observation
+    X_shap = pd.DataFrame([{f: float(row_model.get(f, 0.0)) for f in feats_for_shap}], columns=feats_for_shap)
+    # Align columns to match the model's expected input order
+    X_shap = align_features_to_model(X_shap, model)
+    # Compute SHAP values (or per-feature contributions) for this observation
     shap_raw = None
     try:
-        # Retrieve more features for SHAP explanation to cover all main financial indicators (18–20 features)
         shap_raw = explain_shap(model, X_shap, top_n=20)
     except Exception:
         shap_raw = None
@@ -705,8 +710,8 @@ def render(feats_df: pd.DataFrame, raw_df: pd.DataFrame, ticker: str, year: int,
                 importances = booster.feature_importance(importance_type='gain')
                 names = booster.feature_name()
                 imp_df = pd.DataFrame({"Feature": names, "Importance": importances})
-                # Keep only features present in the shap feature list to align with current input
-                imp_df = imp_df[imp_df["Feature"].isin(shap_feats)]
+                # Keep only features present in the feature list used for SHAP to align with current input
+                imp_df = imp_df[imp_df["Feature"].isin(feats_for_shap)]
                 # If all importances are zero, fallback to split importance
                 if not imp_df.empty and (imp_df["Importance"] == 0).all():
                     imp_df["Importance"] = booster.feature_importance(importance_type='split')
@@ -726,114 +731,79 @@ def render(feats_df: pd.DataFrame, raw_df: pd.DataFrame, ticker: str, year: int,
             shap_df = shap_raw.copy()
         else:
             shap_df = pd.DataFrame(shap_raw)
-        # Ensure at least two columns exist
+        # Ensure at least two columns exist and identify the feature and SHAP columns dynamically
         if shap_df.shape[1] < 2:
             st.info(get_text("shap_info_unrecog", lang))
         else:
-            # Take the first two columns as feature and shap value
-            shap_df = shap_df.iloc[:, :2].copy()
-            shap_df.columns = ["Feature", "SHAP"]
-            # Convert SHAP column to numeric and drop NaNs
-            shap_df["SHAP"] = pd.to_numeric(shap_df["SHAP"], errors='coerce')
-            shap_df = shap_df.dropna()
-            if shap_df.empty:
-                st.info(get_text("shap_info_not_avail", lang))
+            # Helper function to select column names based on candidate keywords
+            def _pick_col(df: pd.DataFrame, cands):
+                lower = {c.lower(): c for c in df.columns}
+                for c in cands:
+                    if c in df.columns:
+                        return c
+                    if c.lower() in lower:
+                        return lower[c.lower()]
+                return None
+            feat_col = _pick_col(shap_df, ["Feature", "feature", "name", "variable"])
+            shap_col = _pick_col(shap_df, ["SHAP", "shap", "impact", "value", "shap_value"])
+            # If unable to detect appropriate columns, inform the user
+            if (feat_col is None) or (shap_col is None):
+                st.info(get_text("shap_info_unrecog", lang))
             else:
-                # Compute absolute SHAP values and sort by importance
-                shap_df["absSHAP"] = shap_df["SHAP"].abs()
-                # Keep top 20 features by absolute value
-                shap_df = shap_df.sort_values("absSHAP", ascending=True).tail(20)
-                # Map each financial indicator to a monotonic sign. Positive (+1) means higher values increase PD; negative (-1) means higher values reduce PD.
-                orientation_map = {
-                    "Current_Ratio": -1,
-                    "Quick_Ratio": -1,
-                    "Working_Capital_to_Total_Assets": -1,
-                    "Debt_to_Assets": +1,
-                    "Debt_to_Equity": +1,
-                    "Equity_to_Liabilities": -1,
-                    "Long_Term_Debt_to_Assets": +1,
-                    "Receivables_Turnover": -1,
-                    "Inventory_Turnover": -1,
-                    "Asset_Turnover": -1,
-                    "ROA": -1,
-                    "ROE": -1,
-                    "EBIT_to_Assets": -1,
-                    "Operating_Income_to_Debt": -1,
-                    "Net_Profit_Margin": -1,
-                    "Gross_Margin": -1,
-                    "Interest_Coverage": -1,
-                    "EBITDA_to_Interest": -1,
-                    "Total_Debt_to_EBITDA": +1
-                }
-                # Append sign annotation to feature names if a monotonic direction is known
-                def _sign_label(feat: str) -> str:
-                    sign = orientation_map.get(feat)
-                    if sign is None:
-                        return str(feat)
-                    return f"{feat} (+)" if sign > 0 else f"{feat} (-)"
-                shap_df["FeatureLabel"] = shap_df["Feature"].apply(_sign_label)
-                # Compute percentage contribution to PD (with sign)
-                total_abs = shap_df["absSHAP"].sum()
-                shap_df["Contribution"] = shap_df.apply(lambda row: (row["SHAP"] / total_abs) * 100 if total_abs != 0 else 0.0, axis=1)
-                # Prepare helper strings for hover text; fallback to English if keys not present
-                try:
-                    inc_text = get_text("shap_contribution_increase", lang)
-                    dec_text = get_text("shap_contribution_decrease", lang)
-                except Exception:
-                    inc_text = "Higher values increase risk"
-                    dec_text = "Higher values reduce risk"
-                # Display top 10 features in main chart
-                top_df = shap_df.sort_values("absSHAP", ascending=True).tail(10).copy()
-                top_colors = ["#E24A33" if v < 0 else "#1F77B4" for v in top_df["Contribution"]]
-                hover_texts = []
-                for _, row in top_df.iterrows():
-                    orient = orientation_map.get(row["Feature"], None)
-                    orient_msg = inc_text if orient == 1 else (dec_text if orient == -1 else "")
-                    hover_texts.append(f"{row['Feature']}: {row['Contribution']:+.2f}%<br>{orient_msg}")
-                fig_sh = go.Figure()
-                fig_sh.add_trace(go.Bar(
-                    x=top_df["Contribution"],
-                    y=top_df["FeatureLabel"],
-                    orientation="h",
-                    marker_color=top_colors,
-                    text=[f"{v:+.2f}%" for v in top_df["Contribution"]],
-                    textposition="outside",
-                    hovertemplate=hover_texts,
-                ))
-                fig_sh.update_layout(
-                    title=get_text("shap_chart_title", lang),
-                    xaxis=dict(title=get_text("shap_xaxis_percentage_title", lang)),
-                    height=420,
-                    margin=dict(l=10, r=20, t=40, b=10),
-                )
-                st.plotly_chart(fig_sh, use_container_width=True)
-                # Additional features displayed in an expander
-                if shap_df.shape[0] > 10:
-                    with st.expander(get_text("shap_more_features", lang)):
-                        more_df = shap_df.sort_values("absSHAP", ascending=False).copy()
-                        more_colors = ["#E24A33" if v < 0 else "#1F77B4" for v in more_df["Contribution"]]
-                        hover_more = []
-                        for _, row in more_df.iterrows():
-                            orient = orientation_map.get(row["Feature"], None)
-                            orient_msg = inc_text if orient == 1 else (dec_text if orient == -1 else "")
-                            hover_more.append(f"{row['Feature']}: {row['Contribution']:+.2f}%<br>{orient_msg}")
-                        fig_more = go.Figure()
-                        fig_more.add_trace(go.Bar(
-                            x=more_df["Contribution"],
-                            y=more_df["FeatureLabel"],
-                            orientation="h",
-                            marker_color=more_colors,
-                            text=[f"{v:+.2f}%" for v in more_df["Contribution"]],
-                            textposition="outside",
-                            hovertemplate=hover_more,
-                        ))
-                        fig_more.update_layout(
-                            title=get_text("shap_chart_title", lang),
-                            xaxis=dict(title=get_text("shap_xaxis_percentage_title", lang)),
-                            height=500,
-                            margin=dict(l=10, r=20, t=40, b=10),
-                        )
-                        st.plotly_chart(fig_more, use_container_width=True)
+                # Reduce to the selected feature and SHAP columns
+                shap_df = shap_df[[feat_col, shap_col]].dropna()
+                # Convert SHAP values to numeric
+                shap_df[shap_col] = pd.to_numeric(shap_df[shap_col], errors="coerce")
+                shap_df = shap_df.dropna()
+                if shap_df.empty:
+                    st.info(get_text("shap_info_not_avail", lang))
+                else:
+                    # Compute absolute SHAP values and sort by importance
+                    shap_df["absSHAP"] = shap_df[shap_col].abs()
+                    # Keep top 20 features by absolute value
+                    shap_df = shap_df.sort_values("absSHAP", ascending=True).tail(20)
+                    # Use feature names as labels
+                    shap_df["FeatureLabel"] = shap_df[feat_col].astype(str)
+                    # Display top 10 features in main chart using SHAP values
+                    top_df = shap_df.sort_values("absSHAP", ascending=True).tail(10).copy()
+                    top_colors = ["#E24A33" if v < 0 else "#1F77B4" for v in top_df[shap_col]]
+                    fig_sh = go.Figure()
+                    fig_sh.add_trace(go.Bar(
+                        x=top_df[shap_col],
+                        y=top_df["FeatureLabel"],
+                        orientation="h",
+                        marker_color=top_colors,
+                        text=[f"{v:+.3f}" for v in top_df[shap_col]],
+                        textposition="outside",
+                    ))
+                    fig_sh.update_layout(
+                        title=get_text("shap_chart_title", lang),
+                        xaxis=dict(title=get_text("shap_xaxis_title", lang)),
+                        height=420,
+                        margin=dict(l=10, r=20, t=40, b=10),
+                    )
+                    st.plotly_chart(fig_sh, use_container_width=True)
+                    # Additional features displayed in an expander
+                    if shap_df.shape[0] > 10:
+                        with st.expander(get_text("shap_more_features", lang)):
+                            more_df = shap_df.sort_values("absSHAP", ascending=False).copy()
+                            more_colors = ["#E24A33" if v < 0 else "#1F77B4" for v in more_df[shap_col]]
+                            fig_more = go.Figure()
+                            fig_more.add_trace(go.Bar(
+                                x=more_df[shap_col],
+                                y=more_df["FeatureLabel"],
+                                orientation="h",
+                                marker_color=more_colors,
+                                text=[f"{v:+.3f}" for v in more_df[shap_col]],
+                                textposition="outside",
+                            ))
+                            fig_more.update_layout(
+                                title=get_text("shap_chart_title", lang),
+                                xaxis=dict(title=get_text("shap_xaxis_title", lang)),
+                                height=500,
+                                margin=dict(l=10, r=20, t=40, b=10),
+                            )
+                            st.plotly_chart(fig_more, use_container_width=True)
     elif show_fallback and not imp_df.empty:
         # Render fallback importance chart
         imp_df = imp_df.copy()
