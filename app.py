@@ -472,11 +472,13 @@ try:
             # Pass dataframes to glossary so it can display example charts
             glossary.render(feats_df, raw_df)
         elif st.session_state.report_tab == "Finance":
-            financial.render(feats_df, raw_df, ticker, year, model, thresholds, sector_bucket, final_features)
+            # Pass the original sector (not bucketized) to tabs that rely on specific sector classification
+            financial.render(feats_df, raw_df, ticker, year, model, thresholds, sector_raw, final_features)
         elif st.session_state.report_tab == "Sentiment":
-            sentiment.render(feats_df, raw_df, ticker, year, model, thresholds, sector_bucket, final_features)
+            # Use the raw sector name to correctly filter news by exact industry
+            sentiment.render(feats_df, raw_df, ticker, year, model, thresholds, sector_raw, final_features)
         elif st.session_state.report_tab == "Summary":
-            summary.render(feats_df, raw_df, ticker, year, model, thresholds, sector_bucket, final_features)
+            summary.render(feats_df, raw_df, ticker, year, model, thresholds, sector_raw, final_features)
 except Exception as e:
     st.error(f"Lỗi khi hiển thị tab {st.session_state.report_tab}: {str(e)}")
     st.exception(e)
