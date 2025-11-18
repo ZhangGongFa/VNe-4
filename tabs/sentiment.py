@@ -47,12 +47,62 @@ def render(feats_df: pd.DataFrame, raw_df: pd.DataFrame, ticker: str, year: int,
         # Filter for selected ticker and year
         news_df = news_data[(news_data['Ticker'].astype(str)==str(ticker)) & (news_data['Year']==year)].copy()
         if news_df.empty:
-            # Friendly suggestion when no news data is available
-            no_data_msg_vi = "Không có dữ liệu tin tức cho mã cổ phiếu và năm đã chọn. Vui lòng thử năm khác hoặc thu thập thêm tin tức."
-            no_data_msg_en = "No news data available for the selected ticker and year. Please try another year or collect more news articles."
-            st.info(no_data_msg_vi if lang=='vi' else no_data_msg_en)
+            # No news for selected ticker: attempt to use news from same sector
+            # Determine tickers in the same sector using raw_df's 'Sector' column
+            try:
+                sector_tickers = raw_df[raw_df['Sector'] == sector]['Ticker'].astype(str).unique().tolist()
+            except Exception:
+                sector_tickers = []
+            # Remove the current ticker if present
+            sector_tickers = [t for t in sector_tickers if t != str(ticker)] if sector_tickers else []
+            sector_news = news_data[(news_data['Ticker'].astype(str).isin(sector_tickers)) & (news_data['Year'] == year)].copy() if sector_tickers else pd.DataFrame()
+            if sector_news.empty:
+                # Friendly suggestion when no news data is available even at sector level
+                no_data_msg_vi = "Không có dữ liệu tin tức cho mã cổ phiếu và năm đã chọn cũng như ngành tương ứng. Vui lòng thử năm khác hoặc thu thập thêm tin tức."
+                no_data_msg_en = "No news data available for the selected ticker, year or its sector. Please try another year or collect more news articles."
+                st.info(no_data_msg_vi if lang=='vi' else no_data_msg_en)
+            else:
+                # Inform user of substitution
+                substitute_msg_vi = "Không có tin tức cho mã cổ phiếu này; hiển thị tin tức từ các công ty cùng ngành."
+                substitute_msg_en = "No news found for this ticker; displaying news from companies in the same sector."
+                st.info(substitute_msg_vi if lang=='vi' else substitute_msg_en)
+                # Prepare display table including ticker column
+                display_df = sector_news.rename(columns={
+                    'Ticker': ('Mã' if lang=='vi' else 'Ticker'),
+                    'Date': ('Ngày' if lang=='vi' else 'Date'),
+                    'Title': ('Tiêu Đề' if lang=='vi' else 'Title'),
+                    'Sentiment_Score': ('Điểm Tình Cảm' if lang=='vi' else 'Sentiment Score'),
+                    'Sentiment_Label': ('Tình Cảm' if lang=='vi' else 'Sentiment')
+                })[[('Mã' if lang=='vi' else 'Ticker'), ('Ngày' if lang=='vi' else 'Date'), ('Tiêu Đề' if lang=='vi' else 'Title'), ('Điểm Tình Cảm' if lang=='vi' else 'Sentiment Score'), ('Tình Cảm' if lang=='vi' else 'Sentiment')]]
+                st.dataframe(display_df, use_container_width=True, hide_index=True, key="sentiment_news_sector_table")
+                # Aggregate sentiment trend by date across sector
+                agg_trend = sector_news.groupby('Date')['Sentiment_Score'].mean().reset_index().sort_values('Date')
+                x_dates = agg_trend['Date']
+                y_scores = agg_trend['Sentiment_Score']
+                fig = go.Figure()
+                fig.add_trace(go.Scatter(
+                    x=x_dates,
+                    y=y_scores,
+                    mode='lines+markers',
+                    name=('Điểm Tình Cảm Ngành' if lang=='vi' else 'Sector Sentiment'),
+                    line=dict(color='rgba(10, 102, 194, 0.8)', width=3),
+                    marker=dict(size=8),
+                    fill='tozeroy',
+                    hovertemplate=(
+                        ("Ngày: %{x}<br>Điểm: %{y:.2f}" if lang=='vi' else "Date: %{x}<br>Score: %{y:.2f}") + "<extra></extra>"
+                    )
+                ))
+                fig.update_layout(
+                    title=("Xu Hướng Tình Cảm Ngành" if lang=='vi' else "Sector News Sentiment Trend"),
+                    xaxis_title=('Ngày' if lang=='vi' else 'Date'),
+                    yaxis_title=('Điểm Tình Cảm' if lang=='vi' else 'Sentiment Score'),
+                    height=350,
+                    yaxis=dict(range=[-1, 1]),
+                    xaxis_tickangle=-30
+                )
+                st.plotly_chart(fig, use_container_width=True, key="sentiment_trend_sector_chart")
         else:
-            # Rename columns for display
+            # Rename columns for display and show own news
             display_df = news_df.rename(columns={
                 'Date': ('Ngày' if lang=='vi' else 'Date'),
                 'Title': ('Tiêu Đề' if lang=='vi' else 'Title'),
@@ -60,7 +110,7 @@ def render(feats_df: pd.DataFrame, raw_df: pd.DataFrame, ticker: str, year: int,
                 'Sentiment_Label': ('Tình Cảm' if lang=='vi' else 'Sentiment')
             })[[('Ngày' if lang=='vi' else 'Date'), ('Tiêu Đề' if lang=='vi' else 'Title'), ('Điểm Tình Cảm' if lang=='vi' else 'Sentiment Score'), ('Tình Cảm' if lang=='vi' else 'Sentiment')]]
             st.dataframe(display_df, use_container_width=True, hide_index=True, key="sentiment_news_table")
-            # Sentiment trend chart
+            # Sentiment trend chart for this ticker
             fig = go.Figure()
             fig.add_trace(go.Scatter(
                 x=display_df[('Ngày' if lang=='vi' else 'Date')],
@@ -97,10 +147,20 @@ def render(feats_df: pd.DataFrame, raw_df: pd.DataFrame, ticker: str, year: int,
         except Exception:
             news_data = pd.DataFrame(columns=['Ticker','Year','Date','Title','Sentiment_Score','Sentiment_Label'])
         subset = news_data[(news_data['Ticker'].astype(str)==str(ticker)) & (news_data['Year']==year)]
+        used_sector_news = False
+        # If there is no news for the ticker, fall back to sector-level news
+        if subset.empty:
+            try:
+                sector_tickers = raw_df[raw_df['Sector'] == sector]['Ticker'].astype(str).unique().tolist()
+            except Exception:
+                sector_tickers = []
+            sector_tickers = [t for t in sector_tickers if t != str(ticker)] if sector_tickers else []
+            if sector_tickers:
+                subset = news_data[(news_data['Ticker'].astype(str).isin(sector_tickers)) & (news_data['Year']==year)]
+                used_sector_news = not subset.empty
         # Sentiment distribution
         if not subset.empty:
             # Normalize sentiment labels to canonical English categories then map to display labels.
-            # This ensures that even when the data uses Vietnamese labels, distribution is computed consistently.
             mapping = {
                 'Rất Tích Cực': 'Very Positive',
                 'Tích Cực': 'Positive',
@@ -129,41 +189,41 @@ def render(feats_df: pd.DataFrame, raw_df: pd.DataFrame, ticker: str, year: int,
                 )
             )])
             fig_pie.update_layout(height=350)
-            st.markdown("**" + ("Phân Loại Tình Cảm" if lang=='vi' else "Sentiment Distribution") + "**")
+            title_text = "Phân Loại Tình Cảm" if lang=='vi' else "Sentiment Distribution"
+            if used_sector_news:
+                title_text = ("Phân Loại Tình Cảm Ngành" if lang=='vi' else "Sector Sentiment Distribution")
+            st.markdown("**" + title_text + "**")
             st.plotly_chart(fig_pie, use_container_width=True, key="sentiment_dist_chart")
-        else:
-            # Suggest exploring another year or collecting more news when no distribution data
-            no_dist_msg_vi = "Chưa có dữ liệu phân loại tình cảm. Vui lòng thử năm khác hoặc thu thập dữ liệu tin tức."
-            no_dist_msg_en = "No sentiment distribution data available. Please try another year or collect more news data."
-            st.info(no_dist_msg_vi if lang=='vi' else no_dist_msg_en)
-        # Key factors: derive from positive vs negative ratio from raw data if available
-        row_raw = raw_df[(raw_df['Ticker'].astype(str)==str(ticker)) & (raw_df['Year']==year)]
-        if not row_raw.empty:
-            rr = row_raw.iloc[0]
-            pos_ratio = rr.get('Positive Ratio', np.nan)
-            neg_ratio = rr.get('Negative Ratio', np.nan)
-            neu_ratio = rr.get('Neutral Ratio', np.nan)
+            # Compute key factors (positive, neutral, negative) based on aggregated counts
+            pos_count = label_counts.get('Very Positive',0) + label_counts.get('Positive',0)
+            neu_count = label_counts.get('Neutral',0)
+            neg_count = label_counts.get('Very Negative',0) + label_counts.get('Negative',0)
+            total_count = pos_count + neu_count + neg_count if (pos_count + neu_count + neg_count) > 0 else 1
             factors = []
-            if not pd.isna(pos_ratio):
-                factors.append((("Tích Cực" if lang=='vi' else 'Positive'), float(pos_ratio)*100))
-            if not pd.isna(neu_ratio):
-                factors.append((("Trung Lập" if lang=='vi' else 'Neutral'), float(neu_ratio)*100))
-            if not pd.isna(neg_ratio):
-                factors.append((("Tiêu Cực" if lang=='vi' else 'Negative'), float(neg_ratio)*100))
-            if factors:
-                factor_labels, factor_vals = zip(*factors)
-                fig_bar = go.Figure(data=[go.Bar(
-                    y=list(factor_labels),
-                    x=list(factor_vals),
-                    orientation='h',
-                    marker_color='rgba(10, 102, 194, 0.8)',
-                    text=[f"{v:.1f}%" for v in factor_vals],
-                    textposition='outside',
-                    hovertemplate="%{y}: %{x:.1f}%<extra></extra>"
-                )])
-                fig_bar.update_layout(height=350, xaxis_title=("Tác Động (%)" if lang=='vi' else 'Impact (%)'))
-                st.markdown("**" + ("Các Yếu Tố Chính" if lang=='vi' else 'Key Factors') + "**")
-                st.plotly_chart(fig_bar, use_container_width=True, key="sentiment_factors_chart")
+            factors.append((("Tích Cực" if lang=='vi' else 'Positive'), (pos_count/total_count)*100))
+            factors.append((("Trung Lập" if lang=='vi' else 'Neutral'), (neu_count/total_count)*100))
+            factors.append((("Tiêu Cực" if lang=='vi' else 'Negative'), (neg_count/total_count)*100))
+            factor_labels, factor_vals = zip(*factors)
+            fig_bar = go.Figure(data=[go.Bar(
+                y=list(factor_labels),
+                x=list(factor_vals),
+                orientation='h',
+                marker_color='rgba(10, 102, 194, 0.8)',
+                text=[f"{v:.1f}%" for v in factor_vals],
+                textposition='outside',
+                hovertemplate="%{y}: %{x:.1f}%<extra></extra>"
+            )])
+            fig_bar.update_layout(height=350, xaxis_title=("Tác Động (%)" if lang=='vi' else 'Impact (%)'))
+            key_title = "Các Yếu Tố Chính" if lang=='vi' else 'Key Factors'
+            if used_sector_news:
+                key_title = ("Các Yếu Tố Ngành" if lang=='vi' else 'Sector Key Factors')
+            st.markdown("**" + key_title + "**")
+            st.plotly_chart(fig_bar, use_container_width=True, key="sentiment_factors_chart")
+        else:
+            # Suggest exploring another year or collecting more news when no distribution data even at sector level
+            no_dist_msg_vi = "Chưa có dữ liệu phân loại tình cảm cho mã cổ phiếu và ngành. Vui lòng thử năm khác hoặc thu thập dữ liệu tin tức."
+            no_dist_msg_en = "No sentiment distribution data available for this ticker or its sector. Please try another year or collect more news data."
+            st.info(no_dist_msg_vi if lang=='vi' else no_dist_msg_en)
         # Detailed sentiment analysis table: show aggregated metrics by category if available
         st.markdown("**" + ("Chi Tiết Phân Tích Tình Cảm" if lang=='vi' else 'Detailed Sentiment Analysis') + "**")
         if not subset.empty:
@@ -206,9 +266,29 @@ def render(feats_df: pd.DataFrame, raw_df: pd.DataFrame, ticker: str, year: int,
         except Exception:
             news_data = pd.DataFrame(columns=['Ticker','Year','Date','Title','Sentiment_Score','Sentiment_Label'])
         subset = news_data[(news_data['Ticker'].astype(str)==str(ticker)) & (news_data['Year']==year)]
-        avg_score = subset['Sentiment_Score'].mean() if not subset.empty else np.nan
-        # Determine overall sentiment category
-        if pd.isna(avg_score):
+        # Determine whether there are news articles for the ticker and compute average sentiment
+        has_news_tab3 = not subset.empty
+        used_sector_news_tab3 = False
+        avg_score = None
+        # If no news for the ticker, try sector-level news
+        if has_news_tab3:
+            avg_score = subset['Sentiment_Score'].mean()
+        else:
+            # Sector fallback
+            try:
+                sector_tickers_tab3 = raw_df[raw_df['Sector'] == sector]['Ticker'].astype(str).unique().tolist()
+            except Exception:
+                sector_tickers_tab3 = []
+            sector_tickers_tab3 = [t for t in sector_tickers_tab3 if t != str(ticker)] if sector_tickers_tab3 else []
+            if sector_tickers_tab3:
+                # Filter sector news for the same year
+                sector_news_tab3 = news_data[(news_data['Ticker'].astype(str).isin(sector_tickers_tab3)) & (news_data['Year']==year)]
+                if not sector_news_tab3.empty:
+                    avg_score = sector_news_tab3['Sentiment_Score'].mean()
+                    has_news_tab3 = True
+                    used_sector_news_tab3 = True
+        # Determine overall sentiment category based on average score
+        if avg_score is None or pd.isna(avg_score):
             overall_label = "Trung Lập" if lang=='vi' else "Neutral"
         else:
             if avg_score > 0.3:
@@ -223,7 +303,12 @@ def render(feats_df: pd.DataFrame, raw_df: pd.DataFrame, ticker: str, year: int,
             strengths_title = "Điểm Mạnh"
             weaknesses_title = "Điểm Yếu"
             recommend_title = "Khuyến Nghị"
-            summary_text = f"Tình cảm thị trường đối với công ty hiện tại là **{overall_label}**" + (f" với điểm trung bình **{avg_score:.2f}/1.0**" if not pd.isna(avg_score) else "") + "."
+            if has_news_tab3 and not used_sector_news_tab3:
+                summary_text = f"Tình cảm thị trường đối với công ty hiện tại là **{overall_label}**" + (f" với điểm trung bình **{avg_score:.2f}/1.0**" if (avg_score is not None and not pd.isna(avg_score)) else "") + "."
+            elif has_news_tab3 and used_sector_news_tab3:
+                summary_text = f"Không có tin tức cho mã cổ phiếu này; sử dụng dữ liệu tin tức của các công ty cùng ngành: tình cảm thị trường của ngành hiện tại là **{overall_label}**" + (f" với điểm trung bình **{avg_score:.2f}/1.0**" if (avg_score is not None and not pd.isna(avg_score)) else "") + "."
+            else:
+                summary_text = "Hiện chưa có dữ liệu tình cảm do không có bài báo cho mã cổ phiếu hoặc ngành trong năm đã chọn."
             strengths_bullets = [
                 "Tỷ lệ tin tức tích cực cao hỗ trợ hình ảnh doanh nghiệp",
                 "Các tin tức về kế hoạch phát triển và kết quả kinh doanh tốt giúp củng cố niềm tin nhà đầu tư"
@@ -241,7 +326,12 @@ def render(feats_df: pd.DataFrame, raw_df: pd.DataFrame, ticker: str, year: int,
             strengths_title = "Strengths"
             weaknesses_title = "Weaknesses"
             recommend_title = "Recommendations"
-            summary_text = f"Market sentiment towards the company is currently **{overall_label}**" + (f" with an average score of **{avg_score:.2f}/1.0**" if not pd.isna(avg_score) else "") + "."
+            if has_news_tab3 and not used_sector_news_tab3:
+                summary_text = f"Market sentiment towards the company is currently **{overall_label}**" + (f" with an average score of **{avg_score:.2f}/1.0**" if (avg_score is not None and not pd.isna(avg_score)) else "") + "."
+            elif has_news_tab3 and used_sector_news_tab3:
+                summary_text = f"No news for the selected ticker; using news from companies in the same sector: market sentiment for the sector is **{overall_label}**" + (f" with an average score of **{avg_score:.2f}/1.0**" if (avg_score is not None and not pd.isna(avg_score)) else "") + "."
+            else:
+                summary_text = "There are currently no news articles for this ticker or its sector in the selected year, so sentiment analysis is unavailable."
             strengths_bullets = [
                 "A high ratio of positive news supports the company image",
                 "News about development plans and strong business results boosts investor confidence"
