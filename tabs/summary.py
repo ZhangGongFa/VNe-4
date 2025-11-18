@@ -46,7 +46,7 @@ import plotly.graph_objects as go
 # `utils_new.model_scoring` module do not expose that function.  The
 # quantile computation inside `_compute_pd_base` will handle its
 # absence gracefully.
-from utils_new.model_scoring import model_feature_names, explain_shap, align_features_to_model
+from utils_new.model_scoring import model_feature_names, explain_shap
 from utils_new.lang import get_text
 
 __all__ = ["render"]
@@ -544,19 +544,20 @@ def render(feats_df: pd.DataFrame, raw_df: pd.DataFrame, ticker: str, year: int,
         # Persist currently selected model index in session state
         if 'pd_model_idx' not in st.session_state:
             st.session_state['pd_model_idx'] = 0
-        # Allow users to directly select a model via radio buttons
-        sel_model_radio = st.radio(
-            get_text("pd_model_selection", lang),
-            model_options,
-            index=st.session_state['pd_model_idx'],
-            horizontal=True,
-        )
-        # Update session state if radio selection differs
-        if sel_model_radio != model_options[st.session_state['pd_model_idx']]:
-            st.session_state['pd_model_idx'] = model_options.index(sel_model_radio)
-        # Determine current, previous and next models based solely on the radio selection.
+        # Display a label for the model selection
+        st.markdown(f"**{get_text('pd_model_selection', lang)}**")
+        # Render model selection using button‑style toggles instead of a radio group.  Each
+        # model is placed in its own column so that the buttons align horizontally.  When
+        # a button is clicked, update the selected model index in session state.  The
+        # currently selected model is indicated by appending an asterisk (*) to its label.
+        button_cols = st.columns(len(model_options))
+        for idx, mdl in enumerate(model_options):
+            label = f"{mdl}*" if st.session_state.get('pd_model_idx', 0) == idx else mdl
+            if button_cols[idx].button(label, key=f"pd_model_button_{idx}"):
+                st.session_state['pd_model_idx'] = idx
+        # Determine current, previous and next models based on the selected index.
         total_models = len(model_options)
-        sel_idx = st.session_state['pd_model_idx']
+        sel_idx = st.session_state.get('pd_model_idx', 0)
         prev_idx = (sel_idx - 1) % total_models
         next_idx = (sel_idx + 1) % total_models
         selected_model = model_options[sel_idx]
@@ -679,17 +680,14 @@ def render(feats_df: pd.DataFrame, raw_df: pd.DataFrame, ticker: str, year: int,
                         "- **AdaBoost**: Simple and interpretable but less accurate and sensitive to noise.")
     # ------------------------------------------------------------------
     # Section C: Model Explainability (SHAP)
-    # The subheader is provided via the localization key below; removed duplicate static header
+    st.subheader("C. Model Explainability (SHAP)")
     # ------------------------------------------------------------------
     # Section C: Model Explainability (SHAP or Feature Importance)
     lang = st.session_state.get('current_lang', 'vi')
     st.subheader(get_text("summary_section_shap", lang))
     # Prepare aligned features for SHAP computation
-    # Use the model's feature names if available; otherwise fall back to the full feature list
-    feats_for_shap = model_feature_names(model) or final_features
-    X_shap = pd.DataFrame([{f: float(row_model.get(f, 0.0)) for f in feats_for_shap}], columns=feats_for_shap)
-    # Align columns to match the model's expected input order
-    X_shap = align_features_to_model(X_shap, model)
+    shap_feats = [f for f in final_features if f in row_model.index]
+    X_shap = pd.DataFrame([{f: float(row_model.get(f, 0.0)) for f in shap_feats}], columns=shap_feats)
     shap_raw = None
     try:
         # Retrieve more features for SHAP explanation to cover all main financial indicators (18–20 features)
@@ -708,8 +706,8 @@ def render(feats_df: pd.DataFrame, raw_df: pd.DataFrame, ticker: str, year: int,
                 importances = booster.feature_importance(importance_type='gain')
                 names = booster.feature_name()
                 imp_df = pd.DataFrame({"Feature": names, "Importance": importances})
-                # Keep only features present in the feature list used for SHAP to align with current input
-                imp_df = imp_df[imp_df["Feature"].isin(feats_for_shap)]
+                # Keep only features present in the shap feature list to align with current input
+                imp_df = imp_df[imp_df["Feature"].isin(shap_feats)]
                 # If all importances are zero, fallback to split importance
                 if not imp_df.empty and (imp_df["Importance"] == 0).all():
                     imp_df["Importance"] = booster.feature_importance(importance_type='split')
@@ -729,79 +727,114 @@ def render(feats_df: pd.DataFrame, raw_df: pd.DataFrame, ticker: str, year: int,
             shap_df = shap_raw.copy()
         else:
             shap_df = pd.DataFrame(shap_raw)
-        # Ensure at least two columns exist and perform dynamic detection of SHAP and feature columns
+        # Ensure at least two columns exist
         if shap_df.shape[1] < 2:
             st.info(get_text("shap_info_unrecog", lang))
         else:
-            # Helper function to select column names based on candidate keywords
-            def _pick_col(df: pd.DataFrame, cands):
-                lower = {c.lower(): c for c in df.columns}
-                for c in cands:
-                    if c in df.columns:
-                        return c
-                    if c.lower() in lower:
-                        return lower[c.lower()]
-                return None
-            feat_col = _pick_col(shap_df, ["Feature", "feature", "name", "variable"])
-            shap_col = _pick_col(shap_df, ["SHAP", "shap", "impact", "value", "shap_value"])
-            # If unable to detect appropriate columns, inform the user
-            if (feat_col is None) or (shap_col is None):
-                st.info(get_text("shap_info_unrecog", lang))
+            # Take the first two columns as feature and shap value
+            shap_df = shap_df.iloc[:, :2].copy()
+            shap_df.columns = ["Feature", "SHAP"]
+            # Convert SHAP column to numeric and drop NaNs
+            shap_df["SHAP"] = pd.to_numeric(shap_df["SHAP"], errors='coerce')
+            shap_df = shap_df.dropna()
+            if shap_df.empty:
+                st.info(get_text("shap_info_not_avail", lang))
             else:
-                # Reduce to the selected feature and SHAP columns and drop missing values
-                shap_df = shap_df[[feat_col, shap_col]].dropna()
-                # Convert SHAP values to numeric
-                shap_df[shap_col] = pd.to_numeric(shap_df[shap_col], errors="coerce")
-                shap_df = shap_df.dropna()
-                if shap_df.empty:
-                    st.info(get_text("shap_info_not_avail", lang))
-                else:
-                    # Compute absolute SHAP values and sort by importance
-                    shap_df["absSHAP"] = shap_df[shap_col].abs()
-                    # Keep top 20 features by absolute value
-                    shap_df = shap_df.sort_values("absSHAP", ascending=True).tail(20)
-                    # Use feature names as labels
-                    shap_df["FeatureLabel"] = shap_df[feat_col].astype(str)
-                    # Display top 10 features in main chart using SHAP values
-                    top_df = shap_df.sort_values("absSHAP", ascending=True).tail(10).copy()
-                    top_colors = ["#E24A33" if v < 0 else "#1F77B4" for v in top_df[shap_col]]
-                    fig_sh = go.Figure()
-                    fig_sh.add_trace(go.Bar(
-                        x=top_df[shap_col],
-                        y=top_df["FeatureLabel"],
-                        orientation="h",
-                        marker_color=top_colors,
-                        text=[f"{v:+.3f}" for v in top_df[shap_col]],
-                        textposition="outside",
-                    ))
-                    fig_sh.update_layout(
-                        title=get_text("shap_chart_title", lang),
-                        xaxis=dict(title=get_text("shap_xaxis_title", lang)),
-                        height=420,
-                        margin=dict(l=10, r=20, t=40, b=10),
-                    )
-                    st.plotly_chart(fig_sh, use_container_width=True)
-                    # Additional features displayed in an expander
-                    if shap_df.shape[0] > 10:
-                        with st.expander(get_text("shap_more_features", lang)):
-                            more_df = shap_df.sort_values("absSHAP", ascending=False).copy()
-                            more_colors = ["#E24A33" if v < 0 else "#1F77B4" for v in more_df[shap_col]]
-                            fig_more = go.Figure()
-                            fig_more.add_trace(go.Bar(
-                                x=more_df[shap_col],
-                                y=more_df["FeatureLabel"],
-                                orientation="h",
-                                marker_color=more_colors,
-                                text=[f"{v:+.3f}" for v in more_df[shap_col]],
-                                textposition="outside",
-                            ))
-                            fig_more.update_layout(
-                                title=get_text("shap_chart_title", lang),
-                                xaxis=dict(title=get_text("shap_xaxis_title", lang)),
-                                height=500,
-                                margin=dict(l=10, r=20, t=40, b=10),
-                            )
-                            st.plotly_chart(fig_more, use_container_width=True)
+                # Compute absolute SHAP values and sort by importance
+                shap_df["absSHAP"] = shap_df["SHAP"].abs()
+                # Keep top 20 features by absolute value
+                shap_df = shap_df.sort_values("absSHAP", ascending=True).tail(20)
+                # Map each financial indicator to a monotonic sign. Positive (+1) means higher values increase PD; negative (-1) means higher values reduce PD.
+                orientation_map = {
+                    "Current_Ratio": -1,
+                    "Quick_Ratio": -1,
+                    "Working_Capital_to_Total_Assets": -1,
+                    "Debt_to_Assets": +1,
+                    "Debt_to_Equity": +1,
+                    "Equity_to_Liabilities": -1,
+                    "Long_Term_Debt_to_Assets": +1,
+                    "Receivables_Turnover": -1,
+                    "Inventory_Turnover": -1,
+                    "Asset_Turnover": -1,
+                    "ROA": -1,
+                    "ROE": -1,
+                    "EBIT_to_Assets": -1,
+                    "Operating_Income_to_Debt": -1,
+                    "Net_Profit_Margin": -1,
+                    "Gross_Margin": -1,
+                    "Interest_Coverage": -1,
+                    "EBITDA_to_Interest": -1,
+                    "Total_Debt_to_EBITDA": +1
+                }
+                # Append sign annotation to feature names if a monotonic direction is known
+                def _sign_label(feat: str) -> str:
+                    sign = orientation_map.get(feat)
+                    if sign is None:
+                        return str(feat)
+                    return f"{feat} (+)" if sign > 0 else f"{feat} (-)"
+                shap_df["FeatureLabel"] = shap_df["Feature"].apply(_sign_label)
+                # Compute percentage contribution to PD (with sign)
+                total_abs = shap_df["absSHAP"].sum()
+                shap_df["Contribution"] = shap_df.apply(lambda row: (row["SHAP"] / total_abs) * 100 if total_abs != 0 else 0.0, axis=1)
+                # Prepare helper strings for hover text; fallback to English if keys not present
+                try:
+                    inc_text = get_text("shap_contribution_increase", lang)
+                    dec_text = get_text("shap_contribution_decrease", lang)
+                except Exception:
+                    inc_text = "Higher values increase risk"
+                    dec_text = "Higher values reduce risk"
+                # Display top 10 features in main chart
+                top_df = shap_df.sort_values("absSHAP", ascending=True).tail(10).copy()
+                top_colors = ["#E24A33" if v < 0 else "#1F77B4" for v in top_df["Contribution"]]
+                hover_texts = []
+                for _, row in top_df.iterrows():
+                    orient = orientation_map.get(row["Feature"], None)
+                    orient_msg = inc_text if orient == 1 else (dec_text if orient == -1 else "")
+                    hover_texts.append(f"{row['Feature']}: {row['Contribution']:+.2f}%<br>{orient_msg}")
+                fig_sh = go.Figure()
+                fig_sh.add_trace(go.Bar(
+                    x=top_df["Contribution"],
+                    y=top_df["FeatureLabel"],
+                    orientation="h",
+                    marker_color=top_colors,
+                    text=[f"{v:+.2f}%" for v in top_df["Contribution"]],
+                    textposition="outside",
+                    hovertemplate=hover_texts,
+                ))
+                fig_sh.update_layout(
+                    title=get_text("shap_chart_title", lang),
+                    xaxis=dict(title=get_text("shap_xaxis_percentage_title", lang)),
+                    height=420,
+                    margin=dict(l=10, r=20, t=40, b=10),
+                )
+                st.plotly_chart(fig_sh, use_container_width=True)
+                # Additional features displayed in an expander
+                if shap_df.shape[0] > 10:
+                    with st.expander(get_text("shap_more_features", lang)):
+                        more_df = shap_df.sort_values("absSHAP", ascending=False).copy()
+                        more_colors = ["#E24A33" if v < 0 else "#1F77B4" for v in more_df["Contribution"]]
+                        hover_more = []
+                        for _, row in more_df.iterrows():
+                            orient = orientation_map.get(row["Feature"], None)
+                            orient_msg = inc_text if orient == 1 else (dec_text if orient == -1 else "")
+                            hover_more.append(f"{row['Feature']}: {row['Contribution']:+.2f}%<br>{orient_msg}")
+                        fig_more = go.Figure()
+                        fig_more.add_trace(go.Bar(
+                            x=more_df["Contribution"],
+                            y=more_df["FeatureLabel"],
+                            orientation="h",
+                            marker_color=more_colors,
+                            text=[f"{v:+.2f}%" for v in more_df["Contribution"]],
+                            textposition="outside",
+                            hovertemplate=hover_more,
+                        ))
+                        fig_more.update_layout(
+                            title=get_text("shap_chart_title", lang),
+                            xaxis=dict(title=get_text("shap_xaxis_percentage_title", lang)),
+                            height=500,
+                            margin=dict(l=10, r=20, t=40, b=10),
+                        )
+                        st.plotly_chart(fig_more, use_container_width=True)
     elif show_fallback and not imp_df.empty:
         # Render fallback importance chart
         imp_df = imp_df.copy()
@@ -1013,136 +1046,50 @@ def render(feats_df: pd.DataFrame, raw_df: pd.DataFrame, ticker: str, year: int,
     # Generate dynamic risk notes based on metrics
     risk_notes_vi = []
     risk_notes_en = []
-    # PD commentary with finer granularity
-    if np.isfinite(pd_final):
-        if pd_final >= 0.40:
-            risk_notes_vi.append("- Xác suất vỡ nợ cao (PD ≥ 40%); cần lập kế hoạch dự phòng và quản trị rủi ro chặt chẽ.")
-            risk_notes_en.append("- High default probability (PD ≥ 40%); implement contingency plans and rigorous risk management.")
-        elif pd_final >= 0.20:
-            risk_notes_vi.append("- Xác suất vỡ nợ trung bình (20% ≤ PD < 40%); theo dõi sát biến động thị trường và hoạt động kinh doanh.")
-            risk_notes_en.append("- Medium default probability (20% ≤ PD < 40%); monitor market dynamics and business performance closely.")
-        elif pd_final >= 0.10:
-            risk_notes_vi.append("- Xác suất vỡ nợ thấp (10% ≤ PD < 20%); rủi ro vẫn ở mức kiểm soát nhưng nên duy trì quản trị rủi ro.")
-            risk_notes_en.append("- Low default probability (10% ≤ PD < 20%); risk is manageable but maintain prudent risk practices.")
-        else:
-            risk_notes_vi.append("- Xác suất vỡ nợ rất thấp (PD < 10%); hồ sơ tín dụng mạnh.")
-            risk_notes_en.append("- Very low default probability (PD < 10%); credit profile appears strong.")
-    # Debt to equity commentary
+    # PD level commentary
+    if pd_final >= 0.50:
+        risk_notes_vi.append("- PD ở mức cao, doanh nghiệp đối mặt rủi ro vỡ nợ đáng kể.")
+        risk_notes_en.append("- High PD level indicates a significant default risk.")
+    elif pd_final >= 0.20:
+        risk_notes_vi.append("- PD ở mức trung bình; cần theo dõi biến động thị trường và kết quả kinh doanh.")
+        risk_notes_en.append("- Medium PD; monitor market movements and business performance closely.")
+    else:
+        risk_notes_vi.append("- PD ở mức thấp, rủi ro vỡ nợ được đánh giá thấp.")
+        risk_notes_en.append("- Low PD level implies a low default risk.")
+    # Debt/Equity commentary
     if np.isfinite(dte):
-        if dte >= 2.0:
-            risk_notes_vi.append("- Tỷ lệ nợ/vốn (D/E) rất cao (≥ 2); công ty dựa nhiều vào nợ, chi phí lãi vay cao và rủi ro tái cấp vốn.")
-            risk_notes_en.append("- Debt/Equity ratio is very high (≥ 2); heavy reliance on debt increases interest burden and refinancing risk.")
-        elif dte >= 1.0:
-            risk_notes_vi.append("- Tỷ lệ nợ/vốn (D/E) ở mức vừa (1–2); đòn bẩy cần được kiểm soát để tránh áp lực vốn.")
-            risk_notes_en.append("- Debt/Equity ratio is moderate (1–2); leverage should be controlled to avoid capital strain.")
+        if dte > 2.0:
+            risk_notes_vi.append("- Tỷ lệ nợ/vốn rất cao; công ty nên giảm đòn bẩy và quản lý nợ.")
+            risk_notes_en.append("- Debt/Equity ratio is very high; the company should reduce leverage and manage debt.")
+        elif dte > 1.0:
+            risk_notes_vi.append("- Tỷ lệ nợ/vốn ở mức trung bình; đòn bẩy cần được theo dõi.")
+            risk_notes_en.append("- Debt/Equity ratio is moderate; leverage should be monitored.")
         else:
-            risk_notes_vi.append("- Tỷ lệ nợ/vốn (D/E) thấp (< 1); cơ cấu vốn thận trọng và an toàn.")
-            risk_notes_en.append("- Debt/Equity ratio is low (< 1); conservative and safe capital structure.")
-    # Debt to assets commentary
-    if np.isfinite(dta):
-        if dta >= 0.7:
-            risk_notes_vi.append("- Tỷ lệ nợ trên tài sản (D/A) cao (≥ 70%); đòn bẩy lớn làm tăng tính dễ tổn thương khi điều kiện thị trường xấu.")
-            risk_notes_en.append("- Debt-to-Assets ratio is high (≥ 70%); heavy leverage increases vulnerability to adverse market conditions.")
-        elif dta >= 0.5:
-            risk_notes_vi.append("- Tỷ lệ nợ trên tài sản (D/A) trung bình (50–70%); cần theo dõi xu hướng nợ và khả năng trả nợ.")
-            risk_notes_en.append("- Debt-to-Assets ratio is moderate (50–70%); monitor leverage trends and debt servicing capacity.")
-        else:
-            risk_notes_vi.append("- Tỷ lệ nợ trên tài sản (D/A) thấp (< 50%); cấu trúc tài chính lành mạnh.")
-            risk_notes_en.append("- Debt-to-Assets ratio is low (< 50%); healthy financial structure.")
-    # Liquidity commentary (Current ratio and Quick ratio)
+            risk_notes_vi.append("- Tỷ lệ nợ/vốn thấp; cấu trúc vốn tương đối an toàn.")
+            risk_notes_en.append("- Debt/Equity ratio is low; capital structure is relatively safe.")
+    # Liquidity (Current Ratio) commentary
     if np.isfinite(current_ratio):
         if current_ratio < 1.0:
-            risk_notes_vi.append("- Hệ số thanh khoản hiện hành thấp (< 1); công ty có thể thiếu hụt vốn lưu động để trả nợ ngắn hạn.")
-            risk_notes_en.append("- Current ratio is low (< 1); company may face working capital shortfalls to meet short-term obligations.")
-        elif current_ratio < 2.0:
-            risk_notes_vi.append("- Hệ số thanh khoản hiện hành trung bình (1–2); khả năng thanh toán tạm đủ nhưng cần quản lý dòng tiền.")
-            risk_notes_en.append("- Current ratio is moderate (1–2); liquidity is adequate but cash flow management is needed.")
+            risk_notes_vi.append("- Hệ số thanh khoản thấp; có nguy cơ thiếu hụt vốn lưu động.")
+            risk_notes_en.append("- Liquidity ratio is low; risk of working capital shortfall.")
+        elif current_ratio < 1.5:
+            risk_notes_vi.append("- Hệ số thanh khoản trung bình; cần quản lý dòng tiền cẩn thận.")
+            risk_notes_en.append("- Liquidity ratio is moderate; careful cash flow management is required.")
         else:
-            risk_notes_vi.append("- Hệ số thanh khoản hiện hành cao (≥ 2); công ty có nguồn lực tốt để đáp ứng nghĩa vụ ngắn hạn.")
-            risk_notes_en.append("- Current ratio is high (≥ 2); ample resources to meet short-term liabilities.")
-    if np.isfinite(quick_ratio):
-        if quick_ratio < 0.8:
-            risk_notes_vi.append("- Hệ số thanh khoản nhanh thấp (< 0.8); phụ thuộc nhiều vào hàng tồn kho và có thể gặp khó khăn thanh toán nhanh.")
-            risk_notes_en.append("- Quick ratio is low (< 0.8); heavy reliance on inventory may hinder immediate liquidity.")
-        elif quick_ratio < 1.5:
-            risk_notes_vi.append("- Hệ số thanh khoản nhanh ở mức vừa (0.8–1.5); thanh khoản khá nhưng nên tiếp tục quản lý cẩn trọng.")
-            risk_notes_en.append("- Quick ratio is moderate (0.8–1.5); liquidity is reasonable but continue to manage carefully.")
-        else:
-            risk_notes_vi.append("- Hệ số thanh khoản nhanh cao (≥ 1.5); khả năng thanh toán tức thời rất tốt.")
-            risk_notes_en.append("- Quick ratio is high (≥ 1.5); strong ability to cover immediate liabilities.")
-    # Profitability commentary (ROA)
+            risk_notes_vi.append("- Hệ số thanh khoản tốt; khả năng thanh toán ngắn hạn vững vàng.")
+            risk_notes_en.append("- Liquidity ratio is strong; short-term obligations are well covered.")
+    # Profitability (ROA) commentary
     if np.isfinite(roa):
-        if roa < 0.0:
-            risk_notes_vi.append("- ROA âm; doanh nghiệp cần cải thiện hiệu quả sử dụng tài sản và khắc phục lỗ.")
-            risk_notes_en.append("- ROA is negative; company needs to improve asset utilization and address losses.")
+        if roa <= 0.0:
+            risk_notes_vi.append("- ROA âm; doanh nghiệp cần cải thiện hiệu quả sử dụng tài sản.")
+            risk_notes_en.append("- Negative ROA; the company needs to improve asset utilization efficiency.")
         elif roa < 0.05:
-            risk_notes_vi.append("- ROA thấp (< 5%); hiệu quả sinh lời kém, cần nâng cao hiệu suất.")
-            risk_notes_en.append("- ROA is low (< 5%); profitability is weak and efficiency must be improved.")
-        elif roa < 0.15:
-            risk_notes_vi.append("- ROA trung bình (5–15%); công ty sinh lời ổn nhưng còn dư địa cải thiện.")
-            risk_notes_en.append("- ROA is moderate (5–15%); company is profitable but there is room for improvement.")
+            risk_notes_vi.append("- ROA ở mức thấp; cần nâng cao hiệu quả sinh lời.")
+            risk_notes_en.append("- ROA is low; profitability needs to be improved.")
         else:
-            risk_notes_vi.append("- ROA cao (≥ 15%); doanh nghiệp đang hoạt động hiệu quả và sinh lời tốt.")
-            risk_notes_en.append("- ROA is high (≥ 15%); the company operates efficiently and generates strong returns.")
-    # Incorporate market sentiment from news analysis if available
-    pos_ratio = neg_ratio = neu_ratio = None
-    avg_sent_score = None
-    try:
-        import os
-        base_dir = os.path.dirname(os.path.dirname(__file__))
-        news_path = os.path.join(base_dir, 'news_sentiment.csv')
-        news_data = pd.read_csv(news_path)
-        subset = news_data[(news_data['Ticker'].astype(str) == str(ticker)) & (news_data['Year'] == year)]
-        if not subset.empty:
-            # Normalize sentiment labels to canonical English categories
-            mapping = {
-                'Rất Tích Cực': 'Very Positive',
-                'Tích Cực': 'Positive',
-                'Trung Lập': 'Neutral',
-                'Tiêu Cực': 'Negative',
-                'Rất Tiêu Cực': 'Very Negative',
-                'Very Positive': 'Very Positive',
-                'Positive': 'Positive',
-                'Neutral': 'Neutral',
-                'Negative': 'Negative',
-                'Very Negative': 'Very Negative'
-            }
-            subset_canon = subset['Sentiment_Label'].map(mapping).fillna(subset['Sentiment_Label'])
-            total = len(subset_canon)
-            pos_count = subset_canon.isin(['Very Positive','Positive']).sum()
-            neg_count = subset_canon.isin(['Very Negative','Negative']).sum()
-            neu_count = subset_canon.isin(['Neutral']).sum()
-            pos_ratio = pos_count / total if total else None
-            neg_ratio = neg_count / total if total else None
-            neu_ratio = neu_count / total if total else None
-            if 'Sentiment_Score' in subset.columns:
-                avg_sent_score = subset['Sentiment_Score'].mean()
-    except Exception:
-        pass
-    # Generate sentiment-related notes
-    if pos_ratio is not None and neg_ratio is not None and neu_ratio is not None:
-        # Determine dominant sentiment
-        if pos_ratio >= 0.6:
-            risk_notes_vi.append("- Tâm lý thị trường rất tích cực; niềm tin nhà đầu tư cao có thể hỗ trợ giá cổ phiếu.")
-            risk_notes_en.append("- Market sentiment is strongly positive; high investor confidence may support the stock price.")
-        elif neg_ratio >= 0.6:
-            risk_notes_vi.append("- Tâm lý thị trường chủ yếu tiêu cực; cần thận trọng vì tin tức bi quan có thể gây áp lực lên cổ phiếu.")
-            risk_notes_en.append("- Market sentiment is predominantly negative; caution is warranted as pessimistic news may pressure the stock.")
-        elif neu_ratio >= 0.6:
-            risk_notes_vi.append("- Tâm lý thị trường trung lập; thiếu động lực rõ ràng, ít chất xúc tác cho giá cổ phiếu.")
-            risk_notes_en.append("- Market sentiment is neutral; lack of strong catalysts may limit price movements.")
-        else:
-            risk_notes_vi.append("- Tâm lý thị trường cân bằng; có cả tin tức tích cực và tiêu cực. Tiếp tục theo dõi dòng tin.")
-            risk_notes_en.append("- Market sentiment is balanced; both positive and negative news exist. Keep monitoring the news flow.")
-        # Add commentary on average sentiment score
-        if avg_sent_score is not None:
-            if avg_sent_score > 0.1:
-                risk_notes_vi.append("- Điểm số tình cảm tổng quan tích cực; tâm lý thị trường có thể tạo động lực ngắn hạn.")
-                risk_notes_en.append("- Overall sentiment score is positive; sentiment could act as a short-term tailwind.")
-            elif avg_sent_score < -0.1:
-                risk_notes_vi.append("- Điểm số tình cảm tổng quan tiêu cực; tin xấu có thể ảnh hưởng tới nhận thức nhà đầu tư.")
-                risk_notes_en.append("- Overall sentiment score is negative; negative news could weigh on investor perception.")
-    # Additional general recommendation for macro and industry outlook
+            risk_notes_vi.append("- ROA cao; doanh nghiệp đang hoạt động hiệu quả.")
+            risk_notes_en.append("- ROA is high; the company is operating efficiently.")
+    # Additional general recommendation
     risk_notes_vi.append("- Theo dõi môi trường vĩ mô và triển vọng ngành để chủ động quản lý rủi ro.")
     risk_notes_en.append("- Monitor macro environment and industry outlook to proactively manage risks.")
     # Display notes
