@@ -544,7 +544,54 @@ def render(feats_df: pd.DataFrame, raw_df: pd.DataFrame, ticker: str, year: int,
         # Persist currently selected model index in session state
         if 'pd_model_idx' not in st.session_state:
             st.session_state['pd_model_idx'] = 0
-        # Allow users to directly select a model via radio buttons
+        # Inject custom CSS to transform the radio widget into a set of pill‑shaped buttons
+        # This CSS hides the default circular indicator and styles the options as buttons
+        st.markdown(
+            """
+            <style>
+            /* Lay out the radio options horizontally and add spacing */
+            div[role="radiogroup"] {
+                flex-direction: row;
+                gap: 8px;
+            }
+            /* Hide the circle indicator inside each radio label */
+            div[role="radiogroup"] > label > div:first-child {
+                display: none !important;
+            }
+            /* Remove default label margin */
+            div[role="radiogroup"] > label {
+                margin: 0 !important;
+            }
+            /* Base style for unselected options */
+            div[role="radiogroup"] input[type="radio"] + div {
+                border: 1px solid #E5E7EB;
+                padding: 6px 12px;
+                border-radius: 999px;
+                background: #F3F4F6;
+                color: #374151;
+                font-weight: 500;
+                font-size: 14px;
+                cursor: pointer;
+                transition: all 0.2s ease;
+            }
+            /* Hover state for unselected options */
+            div[role="radiogroup"] input[type="radio"] + div:hover {
+                border-color: #D1D5DB;
+                background: #E5E7EB;
+            }
+            /* Style for the selected option */
+            div[role="radiogroup"] input[type="radio"]:checked + div {
+                background: #1F2937 !important;
+                color: #ffffff !important;
+                border-color: #1F2937 !important;
+            }
+            </style>
+            """,
+            unsafe_allow_html=True,
+        )
+
+        # Allow users to directly select a model via radio buttons; the custom CSS above
+        # will render the options as pill‑shaped buttons instead of traditional radios.
         sel_model_radio = st.radio(
             get_text("pd_model_selection", lang),
             model_options,
