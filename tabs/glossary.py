@@ -40,7 +40,8 @@ def render(feats_df=None, raw_df=None) -> None:
 - **ROE (Return on Equity):** Lợi nhuận sau thuế trên vốn chủ sở hữu trung bình, phản ánh khả năng sinh lời trên vốn.
 - **Current Ratio:** Tỷ số tài sản ngắn hạn trên nợ ngắn hạn, đánh giá khả năng thanh toán trong ngắn hạn.
 - **Debt/Equity:** Tỷ số nợ phải trả trên vốn chủ sở hữu, cho thấy mức độ đòn bẩy tài chính.
-- **CAGR (Compound Annual Growth Rate):** Tốc độ tăng trưởng kép hàng năm, đo lường mức tăng trưởng trung bình qua nhiều năm.
+        - **CAGR (Compound Annual Growth Rate):** Tốc độ tăng trưởng kép hàng năm, đo lường mức tăng trưởng trung bình qua nhiều năm.
+        - **Phân bố (Distribution):** Mô tả cách các giá trị của một biến được phân tán trong một tập dữ liệu. Ví dụ, phân bố doanh thu cho biết bao nhiêu doanh nghiệp có doanh thu nằm trong các khoảng nhất định.
 
 """)
     else:
@@ -56,7 +57,8 @@ def render(feats_df=None, raw_df=None) -> None:
 - **ROE (Return on Equity):** Net profit over average shareholders' equity, indicating return on invested capital.
 - **Current Ratio:** Current assets divided by current liabilities, gauging short‑term liquidity.
 - **Debt/Equity:** Debt divided by shareholders' equity, indicating the degree of financial leverage.
-- **CAGR (Compound Annual Growth Rate):** Average annual growth rate compounded over multiple years.
+        - **CAGR (Compound Annual Growth Rate):** Average annual growth rate compounded over multiple years.
+        - **Distribution:** Describes how the values of a variable are spread in a dataset. For instance, a revenue distribution shows how many firms fall into different revenue ranges.
 
     """)
 
