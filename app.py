@@ -118,45 +118,6 @@ def inject_global_css():
         background: #0A66C2;
         color: white;
     }
-
-    /*
-    Custom styling for radio buttons used in the PD model selection.
-    The default Streamlit radio component renders small circular radio inputs
-    accompanied by text labels.  To make the model selector look like a set
-    of pill‑shaped buttons, we hide the underlying radio inputs and
-    transform the labels into interactive buttons.  Selected buttons are
-    highlighted with a dark background and white text, while unselected
-    buttons have a light background and dark text.  Margins and padding
-    ensure the buttons align neatly in a horizontal row.
-    */
-    /* Hide the native radio inputs */
-    [data-testid="stRadio"] input[type="radio"] {
-        display: none;
-    }
-    /* Style the radio labels as pill buttons */
-    [data-testid="stRadio"] label {
-        border: 1px solid #E5E7EB;
-        padding: 6px 12px;
-        border-radius: 999px;
-        margin-right: 6px;
-        cursor: pointer;
-        background: #F3F4F6;
-        font-weight: 500;
-        font-size: 14px;
-        color: #374151;
-        transition: all 0.2s ease;
-    }
-    /* Hover state for radio labels */
-    [data-testid="stRadio"] label:hover {
-        border-color: #D1D5DB;
-        background: #E5E7EB;
-    }
-    /* Highlight the selected radio option */
-    [data-testid="stRadio"] label[data-selected="true"] {
-        background: #1F2937 !important;
-        color: #ffffff !important;
-        border-color: #1F2937 !important;
-    }
     </style>
     """, unsafe_allow_html=True)
 
