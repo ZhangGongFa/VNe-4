@@ -363,18 +363,84 @@ def render(feats_df: pd.DataFrame, raw_df: pd.DataFrame, ticker: str, year: int,
             render_card(card_cols[0], strengths_title, strengths_bullets, '#ECFDF5', '#34D399')
             render_card(card_cols[1], weaknesses_title, weaknesses_bullets, '#FEF2F2', '#F87171')
             render_card(card_cols[2], recommend_title, recommendations_bullets, '#EFF6FF', '#60A5FA')
-        # Key metrics summary
+        # Key metrics summary: derive metrics from available news when possible
         st.markdown("**" + ("Chỉ Số Chính" if lang == 'vi' else 'Key Metrics') + "**")
         col1, col2, col3, col4 = st.columns(4)
-        # Positive, negative ratio from raw data
-        row_raw_sel = raw_df[(raw_df['Ticker'].astype(str)==str(ticker)) & (raw_df['Year']==year)]
-        if not row_raw_sel.empty:
-            rr = row_raw_sel.iloc[0]
-            pos_ratio = rr.get('Positive Ratio', np.nan)
-            neg_ratio = rr.get('Negative Ratio', np.nan)
-            neu_ratio = rr.get('Neutral Ratio', np.nan)
-        else:
-            pos_ratio = neg_ratio = neu_ratio = np.nan
+
+        # Compute ratios and volume from the subset of news used for assessment
+        # Use the same subset as above (ticker or sector news).  If no news is available, fall back to raw_df ratios.
+        pos_ratio = neg_ratio = neu_ratio = np.nan
+        news_volume = np.nan
+        sentiment_change = np.nan
+        # Determine the set of tickers used in the subset for computing sentiment change and ratios
+        # 'subset' variable from above scope may not be accessible here; re-filter news_data accordingly
+        try:
+            import os
+            base_dir = os.path.dirname(os.path.dirname(__file__))
+            news_path = os.path.join(base_dir, 'news_sentiment.csv')
+            full_news = pd.read_csv(news_path)
+        except Exception:
+            full_news = pd.DataFrame(columns=['Ticker','Year','Date','Title','Sentiment_Score','Sentiment_Label'])
+        # Determine tickers for current context
+        # If we used sector news for Tab3, replicate logic
+        if has_news_tab3:
+            # Compose subset used in this assessment (ticker-specific or sector-level)
+            if used_sector_news_tab3:
+                tickers_for_current = sector_tickers_tab3
+            else:
+                tickers_for_current = [str(ticker)]
+            # Filter current year news
+            subset_current = full_news[(full_news['Ticker'].astype(str).isin([str(t) for t in tickers_for_current])) & (full_news['Year'] == year)]
+            if not subset_current.empty:
+                # Compute counts by canonical category
+                mapping = {
+                    'Rất Tích Cực': 'Very Positive',
+                    'Tích Cực': 'Positive',
+                    'Trung Lập': 'Neutral',
+                    'Tiêu Cực': 'Negative',
+                    'Rất Tiêu Cực': 'Very Negative',
+                    'Very Positive': 'Very Positive',
+                    'Positive': 'Positive',
+                    'Neutral': 'Neutral',
+                    'Negative': 'Negative',
+                    'Very Negative': 'Very Negative'
+                }
+                subset_current['__canonical'] = subset_current['Sentiment_Label'].map(mapping).fillna(subset_current['Sentiment_Label'])
+                label_counts_current = subset_current['__canonical'].value_counts().to_dict()
+                pos_count_cur = label_counts_current.get('Very Positive',0) + label_counts_current.get('Positive',0)
+                neu_count_cur = label_counts_current.get('Neutral',0)
+                neg_count_cur = label_counts_current.get('Very Negative',0) + label_counts_current.get('Negative',0)
+                total_cur = pos_count_cur + neu_count_cur + neg_count_cur if (pos_count_cur + neu_count_cur + neg_count_cur) > 0 else 1
+                pos_ratio = pos_count_cur / total_cur
+                neu_ratio = neu_count_cur / total_cur
+                neg_ratio = neg_count_cur / total_cur
+                news_volume = len(subset_current)
+                # Compute sentiment change: difference in avg sentiment between current year and previous year (for same group)
+                avg_current = subset_current['Sentiment_Score'].mean()
+                prev_year = year - 1
+                subset_prev = full_news[(full_news['Ticker'].astype(str).isin([str(t) for t in tickers_for_current])) & (full_news['Year'] == prev_year)]
+                if not subset_prev.empty:
+                    avg_prev = subset_prev['Sentiment_Score'].mean()
+                    # Normalize difference relative to score scale (max 1, min -1). We convert to a -1 to 1 range by dividing by 5-1 if scores are 1-5; else treat as difference between -1 and 1. Here we use absolute range of sentiment score (assuming 1-5). To be safe we compute difference directly.
+                    sentiment_change = (avg_current - avg_prev) / (abs(avg_prev) + 1e-9)
+                else:
+                    sentiment_change = np.nan
+        # If no news at all for current ticker/sector, fall back to raw_df metrics
+        if pd.isna(pos_ratio):
+            row_raw_sel = raw_df[(raw_df['Ticker'].astype(str)==str(ticker)) & (raw_df['Year']==year)]
+            if not row_raw_sel.empty:
+                rr = row_raw_sel.iloc[0]
+                pos_ratio = rr.get('Positive Ratio', np.nan)
+                neg_ratio = rr.get('Negative Ratio', np.nan)
+                neu_ratio = rr.get('Neutral Ratio', np.nan)
+                news_volume = rr.get('News Volume', np.nan)
+                sentiment_change = rr.get('Sentiment Change', np.nan)
+            else:
+                pos_ratio = neg_ratio = neu_ratio = np.nan
+                news_volume = np.nan
+                sentiment_change = np.nan
+
+        # Display metrics
         with col1:
             st.metric(
                 ('Điểm Tình Cảm Trung Bình' if lang=='vi' else 'Avg Sentiment Score'),
@@ -394,25 +460,24 @@ def render(feats_df: pd.DataFrame, raw_df: pd.DataFrame, ticker: str, year: int,
                 )
             )
         with col3:
-            # Confidence could be proxied by news volume; classify into High/Medium/Low
-            news_volume = rr.get('News Volume', np.nan) if not row_raw_sel.empty else np.nan
+            # Confidence based on news volume
+            conf_label = None
             if pd.isna(news_volume) or news_volume < 5:
-                confidence_label = 'Thấp' if lang=='vi' else 'Low'
+                conf_label = 'Thấp' if lang=='vi' else 'Low'
             elif news_volume < 15:
-                confidence_label = 'Trung Bình' if lang=='vi' else 'Medium'
+                conf_label = 'Trung Bình' if lang=='vi' else 'Medium'
             else:
-                confidence_label = 'Cao' if lang=='vi' else 'High'
+                conf_label = 'Cao' if lang=='vi' else 'High'
             st.metric(
                 ('Độ Tin Cậy' if lang=='vi' else 'Confidence'),
-                confidence_label,
+                conf_label,
                 None,
                 help=(
                     'Độ tin cậy dựa trên khối lượng tin tức: càng nhiều tin tức, điểm càng tin cậy' if lang=='vi' else 'Confidence reflects the news volume: more articles imply a more reliable score'
                 )
             )
         with col4:
-            # Trend from sentiment change if available
-            sentiment_change = rr.get('Sentiment Change', np.nan)
+            # Trend (sentiment change)
             if lang == 'vi':
                 trend_label = 'Tăng' if (not pd.isna(sentiment_change) and sentiment_change > 0) else ('Giảm' if (not pd.isna(sentiment_change) and sentiment_change < 0) else 'Ổn Định')
             else:
