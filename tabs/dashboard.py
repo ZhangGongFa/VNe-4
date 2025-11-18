@@ -272,33 +272,61 @@ def render(feats_df: pd.DataFrame, raw_df: pd.DataFrame) -> None:
     # table will gracefully degrade.
     with st.container():
         # Determine available columns for revenue and net profit
+        # Prepare variables to hold top company information for narrative
+        top_company_names = []
+        top_company_values = None
         rev_col_candidates = ['Net Sales', 'Revenue', 'Revenue (Bn. VND)']
         np_col_candidates = ['Net Profit For the Year', 'Net Profit']
+        # Pick the first matching revenue column
         rev_col = None
         for c in rev_col_candidates:
             if c in raw_filtered.columns:
                 rev_col = c
                 break
+        # Pick the first matching net profit column
         np_col = None
         for c in np_col_candidates:
             if c in raw_filtered.columns:
                 np_col = c
                 break
+
         # Compute aggregated metrics for the selected year
+        # We copy the yearly filtered dataframe to avoid modifying the original
         temp_df = year_filtered_df.copy()
-        # Safely convert columns if they exist
-        if 'TOTAL ASSETS (Bn. VND)' in temp_df.columns:
-            temp_df['TotalAssets'] = temp_df['TOTAL ASSETS (Bn. VND)'].apply(to_num)
+
+        # Attempt to locate the total assets column flexibly by searching for
+        # any column name containing 'TOTAL ASSETS'.  The raw data column
+        # labels can vary slightly, so a case‑insensitive match provides
+        # resilience.  Once found, the values are assumed to be in VND and
+        # converted to billions of VND (bn VND) by dividing by 1e9.  If
+        # no such column exists, the TotalAssets field will remain NaN.
+        total_assets_col = None
+        for c in temp_df.columns:
+            if isinstance(c, str) and 'TOTAL ASSETS' in c.upper():
+                total_assets_col = c
+                break
+        if total_assets_col is not None:
+            temp_df['TotalAssets'] = temp_df[total_assets_col].apply(to_num) / 1e9
+        else:
+            temp_df['TotalAssets'] = np.nan
+
+        # Convert revenue and net profit to bn VND if the columns exist.  The
+        # raw data appears to be denominated in VND, so dividing by 1e9
+        # yields values in billions of VND.  Missing columns result in NaN.
         if rev_col is not None:
-            temp_df['Revenue'] = temp_df[rev_col].apply(to_num)
+            temp_df['Revenue'] = temp_df[rev_col].apply(to_num) / 1e9
+        else:
+            temp_df['Revenue'] = np.nan
         if np_col is not None:
-            temp_df['NetProfit'] = temp_df[np_col].apply(to_num)
-        # Drop rows with missing key metrics
+            temp_df['NetProfit'] = temp_df[np_col].apply(to_num) / 1e9
+        else:
+            temp_df['NetProfit'] = np.nan
+
+        # Columns to aggregate
         metrics = ['TotalAssets', 'Revenue', 'NetProfit']
-        # Group by ticker and sum values (for aggregated yearly totals)
+        # Group by ticker and sum values to obtain company‑level totals
         if not temp_df.empty:
-            grouped = temp_df.groupby('Ticker')[metrics].sum(numeric_only=True)
-            grouped = grouped.reset_index()
+            grouped = temp_df.groupby('Ticker')[metrics].sum(numeric_only=True).reset_index()
         else:
             grouped = pd.DataFrame(columns=['Ticker'] + metrics)
         # User selects sorting metric
@@ -332,6 +360,9 @@ def render(feats_df: pd.DataFrame, raw_df: pd.DataFrame) -> None:
         if not grouped.empty and sort_metric in grouped.columns:
             grouped_sorted = grouped.sort_values(sort_metric, ascending=False).head(top_n)
             # Format numbers for display
+            # Capture top company names and their metrics for narrative
+            top_company_names = grouped_sorted['Ticker'].head(3).tolist()
+            top_company_values = grouped_sorted[['Ticker', 'TotalAssets', 'Revenue', 'NetProfit']].head(3)
             display_df = grouped_sorted.copy()
             if 'TotalAssets' in display_df.columns:
                 display_df['TotalAssets'] = display_df['TotalAssets'].apply(lambda x: f"{x:,.2f} bn VND" if pd.notna(x) else '-')
@@ -459,13 +490,14 @@ def render(feats_df: pd.DataFrame, raw_df: pd.DataFrame) -> None:
             total_assets_vnd = year_filtered_df['TOTAL ASSETS (Bn. VND)'].apply(to_num).sum()
         # Convert to bn VND (divide by 1e9)
         total_assets_bn_vnd = total_assets_vnd / 1e9
-        # Convert bn VND to bn USD: 1 bn VND ≈ 0.000043478 bn USD (1/23000)
-        total_assets_bn_usd = total_assets_bn_vnd / 23000
-        # Nominal GDP data in billions of USD (approximate values)
+        # Convert bn VND to bn USD using the latest exchange rate provided by the user (1 USD ≈ 26,000 VND).
+        # Therefore 1 bn VND ≈ 1e9/26,000 ≈ 38,461.54 USD = 0.0000384615 bn USD.
+        total_assets_bn_usd = total_assets_bn_vnd / 26000
+        # Nominal GDP data in billions of USD (updated with latest estimate)
         GDP_USD = {
             2016: 257.096, 2017: 281.354, 2018: 310.106, 2019: 334.365,
             2020: 346.616, 2021: 366.475, 2022: 410.324, 2023: 429.717,
-            2024: 450.0, 2025: 470.0
+            2024: 476.3  # updated estimate for 2024
         }
         gdp_usd = GDP_USD.get(int(selected_year), GDP_USD.get(max(GDP_USD.keys()))) if selected_year is not None else GDP_USD.get(max(GDP_USD.keys()))
         market_share = (total_assets_bn_usd / gdp_usd * 100) if gdp_usd else 0.0
@@ -477,9 +509,13 @@ def render(feats_df: pd.DataFrame, raw_df: pd.DataFrame) -> None:
         market_share = 0.0
     # Display gauge and supporting metrics
     gauge_title = "Vốn hoá thị trường/GDP" if lang == 'vi' else "Market cap/GDP"
+    # Clamp the displayed market share to [0, 100] to avoid pointer overflow on the gauge.
+    display_market_share = market_share if market_share is not None else 0.0
+    if isinstance(display_market_share, (int, float)):
+        display_market_share = max(0.0, min(display_market_share, 100.0))
     fig_gauge = go.Figure(go.Indicator(
         mode="gauge+number",
-        value=market_share,
+        value=display_market_share,
         number={"suffix": "%"},
         title={"text": gauge_title},
         gauge={
@@ -493,7 +529,7 @@ def render(feats_df: pd.DataFrame, raw_df: pd.DataFrame) -> None:
             "threshold": {
                 "line": {"color": "#EF4444", "width": 4},
                 "thickness": 0.75,
-                "value": market_share,
+                "value": display_market_share,
             },
         }
     ))
@@ -577,9 +613,31 @@ def render(feats_df: pd.DataFrame, raw_df: pd.DataFrame) -> None:
             narrative += f" Doanh thu trung bình {'tăng' if rev_growth>=0 else 'giảm'} {abs(rev_growth)*100:.1f}% so với năm trước."
         if not np.isnan(np_growth):
             narrative += f" Lợi nhuận ròng trung bình {'tăng' if np_growth>=0 else 'giảm'} {abs(np_growth)*100:.1f}% so với năm trước."
+        # Mention leading companies if available
+        if top_company_names:
+            if len(top_company_names) == 1:
+                narrative += f" Doanh nghiệp dẫn đầu là {top_company_names[0]}."
+            elif len(top_company_names) == 2:
+                narrative += f" Hai doanh nghiệp dẫn đầu là {top_company_names[0]} và {top_company_names[1]}."
+            else:
+                narrative += f" Các doanh nghiệp dẫn đầu là {top_company_names[0]}, {top_company_names[1]} và {top_company_names[2]}."
         # Additional comment comparing sector proportions
         if leading_sector:
             narrative += f" Ngành dẫn đầu về số lượng công ty niêm yết là {leading_sector}."
+        # Mention market cap/GDP ratio if computed
+        try:
+            if gdp_usd and total_assets_bn_usd is not None:
+                narrative += f" Tỷ lệ tổng tài sản/GDP ước tính là {market_share:.2f}%."
+        except Exception:
+            pass
+        # Add extra descriptive commentary about the ranking and conversion assumptions
+        narrative += " Bảng xếp hạng ở trên sắp xếp các doanh nghiệp theo chỉ số bạn chọn (mặc định là tổng tài sản)."
+        narrative += " Kết quả có thể thiên về những doanh nghiệp sở hữu nhiều tài sản cố định và chưa phản ánh mức doanh thu hay lợi nhuận."
+        # Provide context on the GDP estimate and exchange rate used for the gauge
+        try:
+            narrative += f" Tỷ lệ tổng tài sản/GDP được tính dựa trên ước tính GDP {gdp_usd:,.1f} tỷ USD và tỷ giá 1 USD ≈ 26.000 VND."
+        except Exception:
+            pass
         narrative += " Bạn có thể nhấp vào các tab khác để xem chi tiết hơn về từng doanh nghiệp hoặc chỉ số tài chính."
     else:
         narrative = f"**Overview:** In {selected_year}, the average company revenue was {summary_mean.iloc[-1]['Revenue']:,.2f} bn VND and average net profit {summary_mean.iloc[-1]['NetProfit']:,.2f} bn VND."
@@ -587,7 +645,27 @@ def render(feats_df: pd.DataFrame, raw_df: pd.DataFrame) -> None:
             narrative += f" Average revenue {'increased' if rev_growth>=0 else 'decreased'} by {abs(rev_growth)*100:.1f}% from the previous year."
         if not np.isnan(np_growth):
             narrative += f" Average net profit {'increased' if np_growth>=0 else 'decreased'} by {abs(np_growth)*100:.1f}% from the previous year."
+        # Mention leading companies
+        if top_company_names:
+            if len(top_company_names) == 1:
+                narrative += f" The leading company is {top_company_names[0]}."
+            elif len(top_company_names) == 2:
+                narrative += f" The two leading companies are {top_company_names[0]} and {top_company_names[1]}."
+            else:
+                narrative += f" The leading companies are {top_company_names[0]}, {top_company_names[1]} and {top_company_names[2]}."
         if leading_sector:
             narrative += f" The sector with the most listed companies is {leading_sector}."
+        try:
+            if gdp_usd and total_assets_bn_usd is not None:
+                narrative += f" The estimated total assets/GDP ratio is {market_share:.2f}%."
+        except Exception:
+            pass
+        narrative += " The ranking above orders companies by the metric you select (total assets by default)."
+        narrative += " This tends to highlight asset‑intensive businesses and may not correlate with revenue or profitability."
+        # Provide context on the GDP estimate and exchange rate used for the gauge
+        try:
+            narrative += f" The total assets/GDP ratio is computed using a GDP estimate of {gdp_usd:,.1f} bn USD and an exchange rate of 1 USD ≈ 26,000 VND."
+        except Exception:
+            pass
         narrative += " Explore other tabs for detailed company or financial indicator analysis."
     st.markdown(narrative)

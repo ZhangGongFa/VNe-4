@@ -42,6 +42,16 @@ def render(feats_df=None, raw_df=None) -> None:
 - **Debt/Equity:** Tỷ số nợ phải trả trên vốn chủ sở hữu, cho thấy mức độ đòn bẩy tài chính.
 - **CAGR (Compound Annual Growth Rate):** Tốc độ tăng trưởng kép hàng năm, đo lường mức tăng trưởng trung bình qua nhiều năm.
 
+- **Vốn hoá (Market Cap):** Tổng giá trị thị trường của tất cả cổ phiếu đang lưu hành của một doanh nghiệp (giá cổ phiếu nhân với số cổ phiếu).  Đây là thước đo quy mô của doanh nghiệp trên thị trường.
+
+- **GDP (Tổng sản phẩm quốc nội):** Tổng giá trị hàng hoá và dịch vụ cuối cùng được sản xuất trong một quốc gia trong một khoảng thời gian nhất định.
+
+- **Tỷ lệ Vốn hoá/GDP:** Tỷ lệ giữa tổng vốn hoá thị trường và quy mô GDP quốc gia, dùng để so sánh quy mô thị trường chứng khoán với nền kinh tế.
+
+- **bn VND:** Đơn vị biểu thị "tỷ đồng", tức 1.000.000.000 (một tỷ) đồng Việt Nam.
+
+- **bn USD:** Đơn vị biểu thị "tỷ đô la Mỹ", tức 1.000.000.000 (một tỷ) USD.
+
 """)
     else:
         st.markdown("""
@@ -57,6 +67,16 @@ def render(feats_df=None, raw_df=None) -> None:
 - **Current Ratio:** Current assets divided by current liabilities, gauging short‑term liquidity.
 - **Debt/Equity:** Debt divided by shareholders' equity, indicating the degree of financial leverage.
 - **CAGR (Compound Annual Growth Rate):** Average annual growth rate compounded over multiple years.
+
+- **Market capitalisation (Market cap):** Total market value of a company’s outstanding shares, equal to the share price multiplied by the number of shares.  Market cap is used to classify companies by size.
+
+- **GDP (Gross Domestic Product):** The total monetary value of all final goods and services produced within a country during a specific period.
+
+- **Market cap/GDP ratio:** Ratio of total market capitalisation to national GDP, used to compare the size of the stock market to the overall economy.
+
+- **bn VND:** Unit representing one billion Vietnamese đồng (1,000,000,000 VND).
+
+- **bn USD:** Unit representing one billion US dollars.
 
     """)
 
