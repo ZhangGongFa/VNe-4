@@ -52,6 +52,10 @@ def render(feats_df=None, raw_df=None) -> None:
 
 - **bn USD:** Đơn vị biểu thị "tỷ đô la Mỹ", tức 1.000.000.000 (một tỷ) USD.
 
+- **Dòng tiền tự do (Free Cash Flow – FCF):** Lượng tiền còn lại sau khi trừ đi chi tiêu đầu tư (CapEx) khỏi dòng tiền từ hoạt động. FCF = Lưu chuyển tiền tệ từ hoạt động − Chi tiêu đầu tư. FCF dương cho thấy công ty có tiền để trả nợ, chia cổ tức hoặc tái đầu tư, trong khi FCF âm có thể phản ánh doanh nghiệp đang đầu tư mạnh hoặc gặp khó khăn về dòng tiền.
+
+- **Tỷ lệ chuyển đổi tiền (Cash Conversion Ratio – CCR):** Tỷ lệ giữa lưu chuyển tiền từ hoạt động và lợi nhuận ròng (CCR = Lưu chuyển tiền tệ từ hoạt động / Lợi nhuận ròng). Chỉ số này đo lường mức độ hiệu quả trong việc chuyển lợi nhuận kế toán thành tiền mặt. CCR > 1 thường được xem là tích cực, còn CCR < 1 cho thấy lợi nhuận chưa được chuyển hoá thành tiền.
+
 """)
     else:
         st.markdown("""
@@ -77,6 +81,10 @@ def render(feats_df=None, raw_df=None) -> None:
 - **bn VND:** Unit representing one billion Vietnamese đồng (1,000,000,000 VND).
 
 - **bn USD:** Unit representing one billion US dollars.
+
+- **Free Cash Flow (FCF):** The amount of cash remaining after subtracting capital expenditures from operating cash flow. FCF = Operating cash flow – Capital expenditures. A positive FCF implies the company has cash to pay down debt, distribute dividends or reinvest, whereas negative FCF may indicate heavy investment or cash flow constraints.
+
+- **Cash Conversion Ratio (CCR):** The ratio of operating cash flow to net profit (CCR = Operating cash flow / Net profit). This metric measures how effectively accounting profit is translated into cash. A value above 1 is generally favourable, while a value below 1 suggests that profit has not yet been converted into cash.
 
     """)
 

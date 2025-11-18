@@ -40,6 +40,13 @@ def render(feats_df: pd.DataFrame, raw_df: pd.DataFrame, ticker: str, year: int,
         except Exception:
             return 0.0
 
+    # Convert raw monetary values (in VND) to billions of VND.  Many columns in the
+    # raw dataset store amounts in Vietnamese đồng (VND), yet the app labels
+    # tables and charts with "bn VND".  To avoid unit inconsistencies (e.g. values
+    # appearing 1,000 times too large), divide all VND amounts by this factor
+    # before display.  Ratios and percentages remain unaffected.
+    _DIV_BILLION = 1e9
+
     def fmt_val(x):
         return "-" if (x is None or not np.isfinite(x)) else f"{x:,.2f}"
 
@@ -254,16 +261,17 @@ def render(feats_df: pd.DataFrame, raw_df: pd.DataFrame, ticker: str, year: int,
         st.markdown(f"### {get_text('income_statement_title', lang)}")
         st.markdown(f"**{get_text('income_year', lang)}:** {year} | **{get_text('income_company', lang)}:** {ticker} | **{get_text('income_sector', lang)}:** {sector}")
 
-        revenue = to_num(row_raw.get('Net Sales', row_raw.get('Revenue', row_raw.get('Revenue (Bn. VND)', np.nan))))
-        cogs = to_num(row_raw.get('Cost of Sales'))
-        gross_profit = to_num(row_raw.get('Gross Profit'))
-        selling_exp = to_num(row_raw.get('Selling Expenses'))
-        admin_exp = to_num(row_raw.get('General & Admin Expenses'))
-        operating_profit = to_num(row_raw.get('Operating Profit/Loss'))
-        interest_exp = to_num(row_raw.get('Interest Expenses', row_raw.get('Interest Expense')))
-        profit_before_tax = to_num(row_raw.get('Profit before tax', row_raw.get('Net Profit/Loss before tax')))
-        tax_expense = to_num(row_raw.get('Business income tax - current')) + to_num(row_raw.get('Business income tax - deferred'))
-        net_profit = to_num(row_raw.get('Net Profit For the Year'))
+        # Convert all monetary values to billions of VND for consistency
+        revenue = to_num(row_raw.get('Net Sales', row_raw.get('Revenue', row_raw.get('Revenue (Bn. VND)', np.nan)))) / _DIV_BILLION
+        cogs = to_num(row_raw.get('Cost of Sales')) / _DIV_BILLION
+        gross_profit = to_num(row_raw.get('Gross Profit')) / _DIV_BILLION
+        selling_exp = to_num(row_raw.get('Selling Expenses')) / _DIV_BILLION
+        admin_exp = to_num(row_raw.get('General & Admin Expenses')) / _DIV_BILLION
+        operating_profit = to_num(row_raw.get('Operating Profit/Loss')) / _DIV_BILLION
+        interest_exp = to_num(row_raw.get('Interest Expenses', row_raw.get('Interest Expense'))) / _DIV_BILLION
+        profit_before_tax = to_num(row_raw.get('Profit before tax', row_raw.get('Net Profit/Loss before tax'))) / _DIV_BILLION
+        tax_expense = (to_num(row_raw.get('Business income tax - current')) + to_num(row_raw.get('Business income tax - deferred'))) / _DIV_BILLION
+        net_profit = to_num(row_raw.get('Net Profit For the Year')) / _DIV_BILLION
 
         income_items_vi = ['Doanh Thu Thuần', 'Giá Vốn Hàng Bán', 'Lợi Nhuận Gộp', 'Chi Phí Bán Hàng', 'Chi Phí Quản Lý', 'Lợi Nhuận Hoạt Động', 'Chi Phí Lãi Vay', 'Lợi Nhuận Trước Thuế', 'Chi Phí Thuế', 'Lợi Nhuận Ròng']
         income_items_en = ['Net Revenue', 'Cost of Goods Sold', 'Gross Profit', 'Selling Expenses', 'Administrative Expenses', 'Operating Profit', 'Interest Expenses', 'Profit Before Tax', 'Tax Expense', 'Net Profit']
@@ -278,8 +286,8 @@ def render(feats_df: pd.DataFrame, raw_df: pd.DataFrame, ticker: str, year: int,
         st.dataframe(income_df, use_container_width=True, hide_index=True, key="finance_income_table")
 
         trend_years = ticker_raw['Year'].astype(str).tolist()
-        trend_rev = [to_num(v) for v in ticker_raw.get('Net Sales', ticker_raw.get('Revenue', ticker_raw.get('Revenue (Bn. VND)', np.nan)))]
-        trend_np = [to_num(v) for v in ticker_raw.get('Net Profit For the Year', ticker_raw.get('Net Profit', np.nan))]
+        trend_rev = [to_num(v) / _DIV_BILLION for v in ticker_raw.get('Net Sales', ticker_raw.get('Revenue', ticker_raw.get('Revenue (Bn. VND)', np.nan)))]
+        trend_np = [to_num(v) / _DIV_BILLION for v in ticker_raw.get('Net Profit For the Year', ticker_raw.get('Net Profit', np.nan))]
         multi_income = pd.DataFrame({'Year': ticker_raw['Year'], ("Net Revenue" if lang == 'en' else "Doanh Thu"): trend_rev, ("Net Profit" if lang == 'en' else "Lợi Nhuận Ròng"): trend_np})
         st.markdown("**" + ("Dữ liệu nhiều năm" if lang=='vi' else "Multi-year Data") + "**")
         st.dataframe(multi_income, use_container_width=True, hide_index=True, key="income_multiyear_table")
@@ -300,9 +308,9 @@ def render(feats_df: pd.DataFrame, raw_df: pd.DataFrame, ticker: str, year: int,
         cogs_series = ticker_raw['Cost of Sales'] if 'Cost of Sales' in ticker_raw.columns else pd.Series([0]*len(trend_years), index=ticker_raw.index)
         gross_series = ticker_raw['Gross Profit'] if 'Gross Profit' in ticker_raw.columns else pd.Series([0]*len(trend_years), index=ticker_raw.index)
         op_series = ticker_raw['Operating Profit/Loss'] if 'Operating Profit/Loss' in ticker_raw.columns else pd.Series([0]*len(trend_years), index=ticker_raw.index)
-        cogs_trend = [to_num(v) for v in cogs_series]
-        gross_trend = [to_num(v) for v in gross_series]
-        op_trend = [to_num(v) for v in op_series]
+        cogs_trend = [to_num(v) / _DIV_BILLION for v in cogs_series]
+        gross_trend = [to_num(v) / _DIV_BILLION for v in gross_series]
+        op_trend = [to_num(v) / _DIV_BILLION for v in op_series]
         fig_income_extra = go.Figure()
         lbl_rev = 'Doanh Thu' if lang == 'vi' else 'Revenue'
         lbl_cogs = 'Giá Vốn Hàng Bán' if lang == 'vi' else 'Cost of Goods Sold'
@@ -459,8 +467,8 @@ def render(feats_df: pd.DataFrame, raw_df: pd.DataFrame, ticker: str, year: int,
                 tk_raw = raw_df[raw_df['Ticker'].astype(str)==str(tk)].copy()
                 rev_col = 'Net Sales' if 'Net Sales' in tk_raw.columns else ('Revenue' if 'Revenue' in tk_raw.columns else 'Revenue (Bn. VND)')
                 np_col = 'Net Profit For the Year' if 'Net Profit For the Year' in tk_raw.columns else 'Net Profit'
-                tk_raw['Revenue'] = tk_raw[rev_col].apply(lambda v: to_num(v))
-                tk_raw['NetProfit'] = tk_raw[np_col].apply(lambda v: to_num(v))
+                tk_raw['Revenue'] = tk_raw[rev_col].apply(lambda v: to_num(v) / _DIV_BILLION)
+                tk_raw['NetProfit'] = tk_raw[np_col].apply(lambda v: to_num(v) / _DIV_BILLION)
                 tk_raw['Ticker'] = str(tk)
                 # Merge with financial indicators to get margins and ROA/ROE
                 if not fin_ind_df.empty:
@@ -519,25 +527,35 @@ def render(feats_df: pd.DataFrame, raw_df: pd.DataFrame, ticker: str, year: int,
 
         assets_items_vi = ['Tiền Mặt', 'Phải Thu', 'Hàng Tồn Kho', 'Tài Sản Lưu Động', 'Tài Sản Cố Định', 'Đầu Tư Dài Hạn', 'Tổng Tài Sản']
         assets_items_en = ['Cash', 'Accounts Receivable', 'Inventory', 'Current Assets', 'Fixed Assets', 'Long-term Investments', 'Total Assets']
-        cash = to_num(row_raw.get('Cash and cash equivalents (Bn. VND)'))
-        receivables = to_num(row_raw.get('Accounts receivable (Bn. VND)'))
-        inventory = to_num(row_raw.get('Net Inventories', row_raw.get('Inventories, Net (Bn. VND)')))
-        current_assets = to_num(row_raw.get('CURRENT ASSETS (Bn. VND)'))
-        fixed_assets = to_num(row_raw.get('Fixed assets (Bn. VND)'))
-        long_inv = to_num(row_raw.get('Long-term investments (Bn. VND)'))
-        total_assets = to_num(row_raw.get('TOTAL ASSETS (Bn. VND)'))
+        # Convert raw values from VND to billions of VND (bn VND).  Many columns
+        # in the dataset have names ending with "(Bn. VND)" but actually store
+        # absolute VND figures.  Dividing by _DIV_BILLION ensures the
+        # displayed numbers correctly reflect billions of VND.
+        cash = to_num(row_raw.get('Cash and cash equivalents (Bn. VND)')) / _DIV_BILLION
+        receivables = to_num(row_raw.get('Accounts receivable (Bn. VND)')) / _DIV_BILLION
+        inventory = to_num(row_raw.get('Net Inventories', row_raw.get('Inventories, Net (Bn. VND)'))) / _DIV_BILLION
+        current_assets = to_num(row_raw.get('CURRENT ASSETS (Bn. VND)')) / _DIV_BILLION
+        fixed_assets = to_num(row_raw.get('Fixed assets (Bn. VND)')) / _DIV_BILLION
+        long_inv = to_num(row_raw.get('Long-term investments (Bn. VND)')) / _DIV_BILLION
+        total_assets = to_num(row_raw.get('TOTAL ASSETS (Bn. VND)')) / _DIV_BILLION
         assets_values = [cash, receivables, inventory, current_assets, fixed_assets, long_inv, total_assets]
         assets_df = pd.DataFrame({('Item' if lang == 'en' else 'Chỉ Tiêu'): assets_items_en if lang == 'en' else assets_items_vi, ('Value (Bn VND)' if lang == 'en' else 'Giá Trị (Tỷ VND)'): [fmt_val(v) for v in assets_values]})
 
         liab_items_vi = ['Vay Ngắn Hạn', 'Vay Dài Hạn', 'Nợ Ngắn Hạn', 'Nợ Dài Hạn', 'Tổng Nợ', 'Vốn Chủ Sở Hữu', 'Tổng Nợ & Vốn']
         liab_items_en = ['Short-term Borrowings', 'Long-term Borrowings', 'Current Liabilities', 'Long-term Liabilities', 'Total Liabilities', 'Equity', 'Total Liab. & Equity']
-        short_borrow = to_num(row_raw.get('Short-term borrowings (Bn. VND)'))
-        long_borrow = to_num(row_raw.get('Long-term borrowings (Bn. VND)'))
-        current_liab = to_num(row_raw.get('Current liabilities (Bn. VND)'))
-        long_liab = to_num(row_raw.get('Long-term liabilities (Bn. VND)'))
-        total_liab = to_num(row_raw.get('LIABILITIES (Bn. VND)'))
-        equity = to_num(row_raw.get("OWNER'S EQUITY(Bn.VND)"))
-        total_resources = to_num(row_raw.get('TOTAL RESOURCES (Bn. VND)', total_assets))
+        short_borrow = to_num(row_raw.get('Short-term borrowings (Bn. VND)')) / _DIV_BILLION
+        long_borrow = to_num(row_raw.get('Long-term borrowings (Bn. VND)')) / _DIV_BILLION
+        current_liab = to_num(row_raw.get('Current liabilities (Bn. VND)')) / _DIV_BILLION
+        long_liab = to_num(row_raw.get('Long-term liabilities (Bn. VND)')) / _DIV_BILLION
+        total_liab = to_num(row_raw.get('LIABILITIES (Bn. VND)')) / _DIV_BILLION
+        equity = to_num(row_raw.get("OWNER'S EQUITY(Bn.VND)")) / _DIV_BILLION
+        # When TOTAL RESOURCES is missing, fall back to total assets plus liabilities (already converted to bn)
+        total_resources_raw = row_raw.get('TOTAL RESOURCES (Bn. VND)')
+        if total_resources_raw is not None and not pd.isna(total_resources_raw):
+            total_resources = to_num(total_resources_raw) / _DIV_BILLION
+        else:
+            # total_resources not provided: compute as total assets if available
+            total_resources = total_liab + equity if (total_liab is not None and equity is not None) else total_assets
         liab_values = [short_borrow, long_borrow, current_liab, long_liab, total_liab, equity, total_resources]
         liab_df = pd.DataFrame({('Item' if lang == 'en' else 'Chỉ Tiêu'): liab_items_en if lang == 'en' else liab_items_vi, ('Value (Bn VND)' if lang == 'en' else 'Giá Trị (Tỷ VND)'): [fmt_val(v) for v in liab_values]})
 
@@ -549,11 +567,12 @@ def render(feats_df: pd.DataFrame, raw_df: pd.DataFrame, ticker: str, year: int,
             st.markdown("**" + ("Liabilities & Equity" if lang == 'en' else "Nợ & Vốn Chủ") + "**")
             st.dataframe(liab_df, use_container_width=True, hide_index=True, key="finance_liab_table")
 
+        # Build multi-year data for assets, liabilities and equity in bn VND
         multi_balance = pd.DataFrame({
             'Year': ticker_raw['Year'],
-            ('Total Assets' if lang == 'en' else 'Tổng Tài Sản'): [to_num(v) for v in ticker_raw.get('TOTAL ASSETS (Bn. VND)', np.nan)],
-            ('Total Liabilities' if lang == 'en' else 'Tổng Nợ'): [to_num(v) for v in ticker_raw.get('LIABILITIES (Bn. VND)', np.nan)],
-            ('Equity' if lang == 'en' else 'Vốn Chủ'): [to_num(v) for v in ticker_raw.get("OWNER'S EQUITY(Bn.VND)", np.nan)]
+            ('Total Assets' if lang == 'en' else 'Tổng Tài Sản'): [to_num(v) / _DIV_BILLION for v in ticker_raw.get('TOTAL ASSETS (Bn. VND)', pd.Series([np.nan]*len(ticker_raw)))],
+            ('Total Liabilities' if lang == 'en' else 'Tổng Nợ'): [to_num(v) / _DIV_BILLION for v in ticker_raw.get('LIABILITIES (Bn. VND)', pd.Series([np.nan]*len(ticker_raw)))],
+            ('Equity' if lang == 'en' else 'Vốn Chủ'): [to_num(v) / _DIV_BILLION for v in ticker_raw.get("OWNER'S EQUITY(Bn.VND)", pd.Series([np.nan]*len(ticker_raw)))]
         })
         st.markdown("**" + ("Dữ liệu nhiều năm" if lang=='vi' else "Multi-year Data") + "**")
         st.dataframe(multi_balance, use_container_width=True, hide_index=True, key="balance_multiyear_table")
@@ -579,16 +598,16 @@ def render(feats_df: pd.DataFrame, raw_df: pd.DataFrame, ticker: str, year: int,
         st.plotly_chart(figb, use_container_width=True, key="finance_balance_chart")
 
         # Asset composition
-        cash_trend = [to_num(v) for v in ticker_raw.get('Cash and cash equivalents (Bn. VND)', pd.Series([0]*len(mb_years)))]
-        recv_trend = [to_num(v) for v in ticker_raw.get('Accounts receivable (Bn. VND)', pd.Series([0]*len(mb_years)))]
+        cash_trend = [to_num(v) / _DIV_BILLION for v in ticker_raw.get('Cash and cash equivalents (Bn. VND)', pd.Series([0]*len(mb_years)))]
+        recv_trend = [to_num(v) / _DIV_BILLION for v in ticker_raw.get('Accounts receivable (Bn. VND)', pd.Series([0]*len(mb_years)))]
         if 'Net Inventories' in ticker_raw.columns:
-            inv_trend = [to_num(v) for v in ticker_raw['Net Inventories']]
+            inv_trend = [to_num(v) / _DIV_BILLION for v in ticker_raw['Net Inventories']]
         elif 'Inventories, Net (Bn. VND)' in ticker_raw.columns:
-            inv_trend = [to_num(v) for v in ticker_raw['Inventories, Net (Bn. VND)']]
+            inv_trend = [to_num(v) / _DIV_BILLION for v in ticker_raw['Inventories, Net (Bn. VND)']]
         else:
             inv_trend = [0]*len(mb_years)
-        fixed_trend = [to_num(v) for v in ticker_raw.get('Fixed assets (Bn. VND)', pd.Series([0]*len(mb_years)))]
-        longinv_trend = [to_num(v) for v in ticker_raw.get('Long-term investments (Bn. VND)', pd.Series([0]*len(mb_years)))]
+        fixed_trend = [to_num(v) / _DIV_BILLION for v in ticker_raw.get('Fixed assets (Bn. VND)', pd.Series([0]*len(mb_years)))]
+        longinv_trend = [to_num(v) / _DIV_BILLION for v in ticker_raw.get('Long-term investments (Bn. VND)', pd.Series([0]*len(mb_years)))]
         lbl_cash = 'Tiền' if lang == 'vi' else 'Cash'
         lbl_recv = 'Phải Thu' if lang == 'vi' else 'Accounts Receivable'
         lbl_inv = 'Tồn Kho' if lang == 'vi' else 'Inventories'
@@ -613,24 +632,55 @@ def render(feats_df: pd.DataFrame, raw_df: pd.DataFrame, ticker: str, year: int,
         st.plotly_chart(fig_ratio, use_container_width=True, key="finance_balance_ratio_chart")
 
         # Borrowing trends
-        st_borrow_trend = [to_num(v) for v in ticker_raw.get('Short-term borrowings (Bn. VND)', pd.Series([0]*len(mb_years)))]
-        lt_borrow_trend = [to_num(v) for v in ticker_raw.get('Long-term borrowings (Bn. VND)', pd.Series([0]*len(mb_years)))]
+        st_borrow_trend = [to_num(v) / _DIV_BILLION for v in ticker_raw.get('Short-term borrowings (Bn. VND)', pd.Series([0]*len(mb_years)))]
+        lt_borrow_trend = [to_num(v) / _DIV_BILLION for v in ticker_raw.get('Long-term borrowings (Bn. VND)', pd.Series([0]*len(mb_years)))]
         fig_borrow = go.Figure()
         fig_borrow.add_trace(go.Scatter(name=('Vay Ngắn Hạn' if lang=='vi' else 'Short-term Borrowings'), x=mb_years, y=st_borrow_trend, mode='lines+markers'))
         fig_borrow.add_trace(go.Scatter(name=('Vay Dài Hạn' if lang=='vi' else 'Long-term Borrowings'), x=mb_years, y=lt_borrow_trend, mode='lines+markers'))
         fig_borrow.update_layout(title=("Xu Hướng Vay Nợ" if lang == 'vi' else "Borrowing Trends"), height=350, legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1))
         st.plotly_chart(fig_borrow, use_container_width=True, key="finance_balance_borrow_chart")
 
+        # Year-over-year growth analysis for total assets, liabilities and equity
+        # Compute the percentage change from the previous year for the latest year available
+        if len(mb_years) >= 2:
+            try:
+                last_total = assets_series[-1]; prev_total = assets_series[-2]
+                last_liab = liabilities_series[-1]; prev_liab = liabilities_series[-2]
+                last_equity = equity_series[-1]; prev_equity = equity_series[-2]
+                asset_growth = ((last_total - prev_total) / prev_total) if prev_total and np.isfinite(prev_total) else None
+                liab_growth = ((last_liab - prev_liab) / prev_liab) if prev_liab and np.isfinite(prev_liab) else None
+                eq_growth = ((last_equity - prev_equity) / prev_equity) if prev_equity and np.isfinite(prev_equity) else None
+            except Exception:
+                asset_growth = liab_growth = eq_growth = None
+            # Compose narrative summarising balance sheet growth
+            if lang == 'vi':
+                growth_narrative = "**Tăng trưởng bảng cân đối:** "
+                if asset_growth is not None and np.isfinite(asset_growth):
+                    growth_narrative += f"Tổng tài sản {'tăng' if asset_growth >= 0 else 'giảm'} {abs(asset_growth)*100:.1f}% so với năm trước. "
+                if liab_growth is not None and np.isfinite(liab_growth):
+                    growth_narrative += f"Tổng nợ {'tăng' if liab_growth >= 0 else 'giảm'} {abs(liab_growth)*100:.1f}%. "
+                if eq_growth is not None and np.isfinite(eq_growth):
+                    growth_narrative += f"Vốn chủ sở hữu {'tăng' if eq_growth >= 0 else 'giảm'} {abs(eq_growth)*100:.1f}%."
+            else:
+                growth_narrative = "**Balance sheet growth:** "
+                if asset_growth is not None and np.isfinite(asset_growth):
+                    growth_narrative += f"Total assets {'increased' if asset_growth >= 0 else 'decreased'} by {abs(asset_growth)*100:.1f}% from the previous year. "
+                if liab_growth is not None and np.isfinite(liab_growth):
+                    growth_narrative += f"Total liabilities {'increased' if liab_growth >= 0 else 'decreased'} by {abs(liab_growth)*100:.1f}%. "
+                if eq_growth is not None and np.isfinite(eq_growth):
+                    growth_narrative += f"Equity {'increased' if eq_growth >= 0 else 'decreased'} by {abs(eq_growth)*100:.1f}%."
+            st.markdown(growth_narrative)
+
         # -------- Sunburst: Assets --------
-        total_assets_year = to_num(row_raw.get('TOTAL ASSETS (Bn. VND)'))
-        current_assets_year = to_num(row_raw.get('CURRENT ASSETS (Bn. VND)'))
-        cash_year = to_num(row_raw.get('Cash and cash equivalents (Bn. VND)'))
-        receivables_year = to_num(row_raw.get('Accounts receivable (Bn. VND)'))
-        inventories_year = to_num(row_raw.get('Net Inventories', row_raw.get('Inventories, Net (Bn. VND)', 0)))
-        other_current_year = to_num(row_raw.get('Other current assets'))
-        fixed_assets_year = to_num(row_raw.get('Fixed assets (Bn. VND)'))
-        long_inv_year = to_num(row_raw.get('Long-term investments (Bn. VND)'))
-        other_noncurrent_year = to_num(row_raw.get('Other non-current assets'))
+        total_assets_year = to_num(row_raw.get('TOTAL ASSETS (Bn. VND)')) / _DIV_BILLION
+        current_assets_year = to_num(row_raw.get('CURRENT ASSETS (Bn. VND)')) / _DIV_BILLION
+        cash_year = to_num(row_raw.get('Cash and cash equivalents (Bn. VND)')) / _DIV_BILLION
+        receivables_year = to_num(row_raw.get('Accounts receivable (Bn. VND)')) / _DIV_BILLION
+        inventories_year = to_num(row_raw.get('Net Inventories', row_raw.get('Inventories, Net (Bn. VND)', 0))) / _DIV_BILLION
+        other_current_year = to_num(row_raw.get('Other current assets')) / _DIV_BILLION
+        fixed_assets_year = to_num(row_raw.get('Fixed assets (Bn. VND)')) / _DIV_BILLION
+        long_inv_year = to_num(row_raw.get('Long-term investments (Bn. VND)')) / _DIV_BILLION
+        other_noncurrent_year = to_num(row_raw.get('Other non-current assets')) / _DIV_BILLION
         noncurrent_total = fixed_assets_year + long_inv_year + other_noncurrent_year
 
         root_asset = 'Tổng Tài Sản' if lang == 'vi' else 'Total Assets'
@@ -687,13 +737,13 @@ def render(feats_df: pd.DataFrame, raw_df: pd.DataFrame, ticker: str, year: int,
 
         # -------- Capital structure summary (replace faulty liabilities sunburst) --------
         # Calculate capital structure metrics to provide narrative instead of a sunburst chart.
-        total_liabilities_year = to_num(row_raw.get('LIABILITIES (Bn. VND)'))
-        total_equity_year = to_num(row_raw.get("OWNER'S EQUITY(Bn.VND)"))
-        total_resources_year = to_num(row_raw.get('TOTAL RESOURCES (Bn. VND)'))
+        total_liabilities_year = to_num(row_raw.get('LIABILITIES (Bn. VND)')) / _DIV_BILLION
+        total_equity_year = to_num(row_raw.get("OWNER'S EQUITY(Bn.VND)")) / _DIV_BILLION
+        total_resources_year = to_num(row_raw.get('TOTAL RESOURCES (Bn. VND)')) / _DIV_BILLION
         if total_resources_year <= 0:
             total_resources_year = (total_liabilities_year if total_liabilities_year else 0.0) + (total_equity_year if total_equity_year else 0.0)
-        current_liabilities_year = to_num(row_raw.get('Current liabilities (Bn. VND)'))
-        long_liabilities_year = to_num(row_raw.get('Long-term liabilities (Bn. VND)'))
+        current_liabilities_year = to_num(row_raw.get('Current liabilities (Bn. VND)')) / _DIV_BILLION
+        long_liabilities_year = to_num(row_raw.get('Long-term liabilities (Bn. VND)')) / _DIV_BILLION
         other_liabilities_year = max((total_liabilities_year if total_liabilities_year else 0.0) - ((current_liabilities_year or 0.0) + (long_liabilities_year or 0.0)), 0.0)
         # Narratively summarise the capital structure using the ratio chart instead of a tree
         if total_resources_year > 0 and (total_liabilities_year or total_equity_year):
@@ -722,17 +772,17 @@ def render(feats_df: pd.DataFrame, raw_df: pd.DataFrame, ticker: str, year: int,
         st.markdown(f"### {get_text('cashflow_statement_title', lang)}")
         cf_items_vi = ['Lợi Nhuận Ròng', 'Khấu Hao & Khấu Hao', 'Thay Đổi Vốn Lưu Động', 'Lưu Chuyển từ Hoạt Động', 'Chi Đầu Tư Cố Định', 'Lưu Chuyển từ Đầu Tư', 'Phát Hành Cổ Phiếu', 'Trả Nợ Vay', 'Lưu Chuyển từ Tài Chính', 'Thay Đổi Tiền Mặt']
         cf_items_en = ['Net Profit', 'Depreciation & Amortization', 'Change in Working Capital', 'Operating Cash Flow', 'Capital Expenditures', 'Investing Cash Flow', 'Equity Issuance', 'Debt Repayment', 'Financing Cash Flow', 'Net Change in Cash']
-        net_profit_cf = to_num(row_raw.get('Net Profit For the Year', row_raw.get('Net Profit', np.nan)))
-        depreciation = to_num(row_raw.get('Depreciation and Amortisation'))
+        net_profit_cf = to_num(row_raw.get('Net Profit For the Year', row_raw.get('Net Profit', np.nan))) / _DIV_BILLION
+        depreciation = to_num(row_raw.get('Depreciation and Amortisation')) / _DIV_BILLION
         wc_change = (to_num(row_raw.get('Increase/Decrease in receivables')) + to_num(row_raw.get('Increase/Decrease in inventories')) +
-                     to_num(row_raw.get('Increase/Decrease in payables')) + to_num(row_raw.get('Increase/Decrease in prepaid expenses')))
-        ocf = to_num(row_raw.get('Net cash inflows/outflows from operating activities'))
-        capex = to_num(row_raw.get('Purchase of fixed assets'))
-        investing_cf = to_num(row_raw.get('Net Cash Flows from Investing Activities'))
-        equity_issue = to_num(row_raw.get('Increase in charter capital', row_raw.get('Increase in charter captial')))
-        debt_repay = to_num(row_raw.get('Repayment of borrowings'))
-        financing_cf = to_num(row_raw.get('Cash flows from financial activities'))
-        net_change_cash = to_num(row_raw.get('Net increase/decrease in cash and cash equivalents'))
+                     to_num(row_raw.get('Increase/Decrease in payables')) + to_num(row_raw.get('Increase/Decrease in prepaid expenses'))) / _DIV_BILLION
+        ocf = to_num(row_raw.get('Net cash inflows/outflows from operating activities')) / _DIV_BILLION
+        capex = to_num(row_raw.get('Purchase of fixed assets')) / _DIV_BILLION
+        investing_cf = to_num(row_raw.get('Net Cash Flows from Investing Activities')) / _DIV_BILLION
+        equity_issue = to_num(row_raw.get('Increase in charter capital', row_raw.get('Increase in charter captial'))) / _DIV_BILLION
+        debt_repay = to_num(row_raw.get('Repayment of borrowings')) / _DIV_BILLION
+        financing_cf = to_num(row_raw.get('Cash flows from financial activities')) / _DIV_BILLION
+        net_change_cash = to_num(row_raw.get('Net increase/decrease in cash and cash equivalents')) / _DIV_BILLION
         cf_values = [net_profit_cf, depreciation, wc_change, ocf, capex, investing_cf, equity_issue, debt_repay, financing_cf, net_change_cash]
         cf_df = pd.DataFrame({('Item' if lang == 'en' else 'Chỉ Tiêu'): cf_items_en if lang == 'en' else cf_items_vi, ('Value (Bn VND)' if lang == 'en' else 'Giá Trị (Tỷ VND)'): [fmt_val(v) for v in cf_values]})
         st.dataframe(cf_df, use_container_width=True, hide_index=True, key="finance_cashflow_table")
@@ -744,10 +794,10 @@ def render(feats_df: pd.DataFrame, raw_df: pd.DataFrame, ticker: str, year: int,
 
         multi_cf = pd.DataFrame({
             'Year': ticker_raw['Year'],
-            ('Operating CF' if lang == 'en' else 'Lưu Chuyển Hoạt Động'): [to_num(v) for v in ticker_raw.get('Net cash inflows/outflows from operating activities', np.nan)],
-            ('Investing CF' if lang == 'en' else 'Lưu Chuyển Đầu Tư'): [to_num(v) for v in ticker_raw.get('Net Cash Flows from Investing Activities', np.nan)],
-            ('Financing CF' if lang == 'en' else 'Lưu Chuyển Tài Chính'): [to_num(v) for v in ticker_raw.get('Cash flows from financial activities', np.nan)],
-            ('Net Change Cash' if lang == 'en' else 'Thay Đổi Tiền Mặt'): [to_num(v) for v in ticker_raw.get('Net increase/decrease in cash and cash equivalents', np.nan)]
+            ('Operating CF' if lang == 'en' else 'Lưu Chuyển Hoạt Động'): [to_num(v) / _DIV_BILLION for v in ticker_raw.get('Net cash inflows/outflows from operating activities', pd.Series([np.nan]*len(ticker_raw)))],
+            ('Investing CF' if lang == 'en' else 'Lưu Chuyển Đầu Tư'): [to_num(v) / _DIV_BILLION for v in ticker_raw.get('Net Cash Flows from Investing Activities', pd.Series([np.nan]*len(ticker_raw)))],
+            ('Financing CF' if lang == 'en' else 'Lưu Chuyển Tài Chính'): [to_num(v) / _DIV_BILLION for v in ticker_raw.get('Cash flows from financial activities', pd.Series([np.nan]*len(ticker_raw)))],
+            ('Net Change Cash' if lang == 'en' else 'Thay Đổi Tiền Mặt'): [to_num(v) / _DIV_BILLION for v in ticker_raw.get('Net increase/decrease in cash and cash equivalents', pd.Series([np.nan]*len(ticker_raw)))]
         })
         st.markdown("**" + ("Dữ liệu nhiều năm" if lang=='vi' else "Multi-year Data") + "**")
         st.dataframe(multi_cf, use_container_width=True, hide_index=True, key="cashflow_multiyear_table")
@@ -764,6 +814,7 @@ def render(feats_df: pd.DataFrame, raw_df: pd.DataFrame, ticker: str, year: int,
         icf_col = 'Lưu Chuyển Đầu Tư' if lang == 'vi' else 'Investing CF'
         fcf_col = 'Lưu Chuyển Tài Chính' if lang == 'vi' else 'Financing CF'
         net_col = 'Thay Đổi Tiền Mặt' if lang == 'vi' else 'Net Change Cash'
+        # Values are already converted to bn VND in multi_cf
         ocf_series = multi_cf[ocf_col].tolist(); icf_series = multi_cf[icf_col].tolist(); fcf_series = multi_cf[fcf_col].tolist(); net_series = multi_cf[net_col].tolist()
         figcf_multi = go.Figure(data=[go.Bar(name=ocf_col, x=cf_years, y=ocf_series), go.Bar(name=icf_col, x=cf_years, y=icf_series), go.Bar(name=fcf_col, x=cf_years, y=fcf_series), go.Bar(name=net_col, x=cf_years, y=net_series)])
         figcf_multi.update_layout(title=("Xu Hướng Lưu Chuyển Tiền" if lang == 'vi' else "Cash Flow Components Trend"), barmode='group', height=350)
@@ -771,14 +822,14 @@ def render(feats_df: pd.DataFrame, raw_df: pd.DataFrame, ticker: str, year: int,
 
         # Net profit vs Operating CF vs FCF
         if 'Net Profit For the Year' in ticker_raw.columns:
-            np_trend_full = [to_num(v) for v in ticker_raw['Net Profit For the Year']]
+            np_trend_full = [to_num(v) / _DIV_BILLION for v in ticker_raw['Net Profit For the Year']]
         elif 'Net Profit' in ticker_raw.columns:
-            np_trend_full = [to_num(v) for v in ticker_raw['Net Profit']]
+            np_trend_full = [to_num(v) / _DIV_BILLION for v in ticker_raw['Net Profit']]
         else:
             np_trend_full = [0]*len(cf_years)
         capex_series_full = ticker_raw.get('Purchase of fixed assets', pd.Series([0]*len(cf_years)))
-        capex_trend = [to_num(v) for v in capex_series_full]
-        fcf_trend = [(ocf_val - capex_val) if (ocf_val is not None and np.isfinite(ocf_val)) else None for ocf_val, capex_val in zip(ocf_series, capex_trend)]
+        capex_trend = [to_num(v) / _DIV_BILLION for v in capex_series_full]
+        fcf_trend = [(ocf_val - capex_val) if (ocf_val is not None and np.isfinite(ocf_val) and capex_val is not None and np.isfinite(capex_val)) else None for ocf_val, capex_val in zip(ocf_series, capex_trend)]
         figcf_compare = go.Figure()
         figcf_compare.add_trace(go.Scatter(name=('Lợi Nhuận Ròng' if lang=='vi' else 'Net Profit'), x=cf_years, y=np_trend_full, mode='lines+markers'))
         figcf_compare.add_trace(go.Scatter(name=('Lưu Chuyển Hoạt Động' if lang=='vi' else 'Operating CF'), x=cf_years, y=ocf_series, mode='lines+markers'))
@@ -788,26 +839,39 @@ def render(feats_df: pd.DataFrame, raw_df: pd.DataFrame, ticker: str, year: int,
 
         # Narrative analysis for the cash flow statement
         # Interpret signs of operating, investing and financing cash flows for the current year
-        ocf_desc = investing_desc = financing_desc = net_desc = ""
-        # Determine the direction (positive/negative) and magnitude of cash flows
-        ocf_val = ocf  # operating cash flow from current year
+        ocf_val = ocf  # operating cash flow from current year (bn VND)
         inv_val = investing_cf
         fin_val = financing_cf
         net_val = net_change_cash
+        # Calculate cash conversion ratio and free cash flow (FCF)
+        cash_conv_ratio = None
+        if net_profit_cf is not None and np.isfinite(net_profit_cf) and net_profit_cf != 0:
+            cash_conv_ratio = ocf_val / net_profit_cf
+        fcf_current = None
+        if np.isfinite(ocf_val) and np.isfinite(capex):
+            fcf_current = ocf_val - capex
         if lang == 'vi':
             narrative_cf = "**Phân tích lưu chuyển tiền tệ:** "
-            # Operating cash flow
+            # Operating cash flow description
             if np.isfinite(ocf_val):
                 narrative_cf += f"Dòng tiền từ hoạt động {'dương' if ocf_val >= 0 else 'âm'} {abs(ocf_val):,.2f} tỷ VND, "
-            # Investing cash flow
+            # Investing cash flow description
             if np.isfinite(inv_val):
                 narrative_cf += f"dòng tiền từ đầu tư {'dương' if inv_val >= 0 else 'âm'} {abs(inv_val):,.2f} tỷ VND, "
-            # Financing cash flow
+            # Financing cash flow description
             if np.isfinite(fin_val):
                 narrative_cf += f"dòng tiền từ tài chính {'dương' if fin_val >= 0 else 'âm'} {abs(fin_val):,.2f} tỷ VND. "
             # Net change in cash
             if np.isfinite(net_val):
-                narrative_cf += f"Tổng hợp lại, tiền mặt {'tăng' if net_val >= 0 else 'giảm'} {abs(net_val):,.2f} tỷ VND so với đầu kỳ."
+                narrative_cf += f"Tổng hợp lại, tiền mặt {'tăng' if net_val >= 0 else 'giảm'} {abs(net_val):,.2f} tỷ VND so với đầu kỳ. "
+            # Additional insights: cash conversion ratio and free cash flow
+            if cash_conv_ratio is not None and np.isfinite(cash_conv_ratio):
+                narrative_cf += f"Tỷ lệ chuyển đổi tiền (= dòng tiền hoạt động / lợi nhuận ròng) là {cash_conv_ratio:.2f}, "
+                narrative_cf += "cho thấy công ty "
+                narrative_cf += "chuyển đổi lợi nhuận thành tiền mặt hiệu quả" if cash_conv_ratio >= 1 else "chưa chuyển đổi lợi nhuận thành tiền mặt hiệu quả"
+                narrative_cf += ". "
+            if fcf_current is not None and np.isfinite(fcf_current):
+                narrative_cf += f"Dòng tiền tự do (FCF) {'dương' if fcf_current >= 0 else 'âm'} {abs(fcf_current):,.2f} tỷ VND sau khi trừ chi đầu tư."
         else:
             narrative_cf = "**Cash flow analysis:** "
             if np.isfinite(ocf_val):
@@ -817,7 +881,14 @@ def render(feats_df: pd.DataFrame, raw_df: pd.DataFrame, ticker: str, year: int,
             if np.isfinite(fin_val):
                 narrative_cf += f"financing cash flow was {'positive' if fin_val >= 0 else 'negative'} {abs(fin_val):,.2f} bn VND. "
             if np.isfinite(net_val):
-                narrative_cf += f"Overall, cash {'increased' if net_val >= 0 else 'decreased'} by {abs(net_val):,.2f} bn VND from the beginning of the period."
+                narrative_cf += f"Overall, cash {'increased' if net_val >= 0 else 'decreased'} by {abs(net_val):,.2f} bn VND from the beginning of the period. "
+            # Additional insights: cash conversion ratio and free cash flow
+            if cash_conv_ratio is not None and np.isfinite(cash_conv_ratio):
+                narrative_cf += f"The cash conversion ratio (Operating CF / Net profit) is {cash_conv_ratio:.2f}, indicating that the company "
+                narrative_cf += "efficiently converts profit into cash" if cash_conv_ratio >= 1 else "has weak cash conversion"
+                narrative_cf += ". "
+            if fcf_current is not None and np.isfinite(fcf_current):
+                narrative_cf += f"Free cash flow (FCF) was {'positive' if fcf_current >= 0 else 'negative'} {abs(fcf_current):,.2f} bn VND after accounting for capital expenditures."
         st.markdown(narrative_cf)
 
     # ----------------- TAB 4: INDICATORS -----------------
@@ -956,8 +1027,9 @@ def render(feats_df: pd.DataFrame, raw_df: pd.DataFrame, ticker: str, year: int,
         prev_raw = raw_df[(raw_df['Ticker'].astype(str) == str(ticker)) & (raw_df['Year'] == year - 1)]
         if not prev_raw.empty:
             prev_row = prev_raw.iloc[0]
-            prev_rev = to_num(prev_row.get('Net Sales', prev_row.get('Revenue', prev_row.get('Revenue (Bn. VND)', np.nan))))
-            prev_np = to_num(prev_row.get('Net Profit For the Year', prev_row.get('Net Profit', np.nan)))
+            # Convert previous year revenue and net profit to bn VND for consistency
+            prev_rev = to_num(prev_row.get('Net Sales', prev_row.get('Revenue', prev_row.get('Revenue (Bn. VND)', np.nan)))) / _DIV_BILLION
+            prev_np = to_num(prev_row.get('Net Profit For the Year', prev_row.get('Net Profit', np.nan))) / _DIV_BILLION
             rev_growth = (revenue - prev_rev) / prev_rev if prev_rev != 0 else np.nan
             np_growth = (net_profit - prev_np) / prev_np if prev_np != 0 else np.nan
         else:
