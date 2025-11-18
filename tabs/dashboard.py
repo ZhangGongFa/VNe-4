@@ -217,53 +217,6 @@ def render(feats_df: pd.DataFrame, raw_df: pd.DataFrame) -> None:
     fig.update_layout(title=get_text('dashboard_avg_trend', lang), height=350, legend=dict(orientation='h', yanchor='bottom', y=1.02, xanchor='right', x=1))
     st.plotly_chart(fig, use_container_width=True, key='dashboard_avg_chart')
 
-    # -------------------------------------------------------------------------
-    # Distribution of revenue & net profit
-    # Visualise the spread of revenue and net profit across companies in the latest year
-    # for the selected sector/exchange.  Overlaid histograms convey whether most
-    # companies cluster around certain values or whether the distribution is skewed.
-    try:
-        # Ensure latest_df exists and has numeric revenue/net profit columns
-        dist_df = latest_df.copy()
-        # Identify revenue and net profit columns (reuse the same logic as above)
-        if 'Net Sales' in dist_df.columns:
-            rev_col = 'Net Sales'
-        elif 'Revenue' in dist_df.columns:
-            rev_col = 'Revenue'
-        else:
-            rev_col = 'Revenue (Bn. VND)'
-        np_col = 'Net Profit For the Year' if 'Net Profit For the Year' in dist_df.columns else 'Net Profit'
-        dist_df['Revenue'] = dist_df[rev_col].apply(to_num)
-        dist_df['NetProfit'] = dist_df[np_col].apply(to_num)
-        # Drop NaNs
-        dist_df = dist_df.dropna(subset=['Revenue', 'NetProfit'])
-        if not dist_df.empty:
-            fig_dist = go.Figure()
-            fig_dist.add_trace(go.Histogram(
-                x=dist_df['Revenue'],
-                name=get_text('dashboard_distribution_rev', lang),
-                nbinsx=30,
-                opacity=0.6,
-                marker_color='#60A5FA'
-            ))
-            fig_dist.add_trace(go.Histogram(
-                x=dist_df['NetProfit'],
-                name=get_text('dashboard_distribution_np', lang),
-                nbinsx=30,
-                opacity=0.6,
-                marker_color='#F87171'
-            ))
-            fig_dist.update_layout(
-                title=get_text('dashboard_distribution_title', lang),
-                barmode='overlay',
-                height=350,
-                xaxis_title=(get_text('metric_revenue', lang) if lang == 'vi' else 'Value'),
-                yaxis_title=('Tần suất' if lang == 'vi' else 'Frequency')
-            )
-            st.plotly_chart(fig_dist, use_container_width=True, key='dashboard_distribution_chart')
-    except Exception:
-        pass
-
     # Add a gauge chart illustrating market capitalisation as a percentage of GDP.
     # We hard‑code the value based on publicly available data: Vietnam's market
     # cap is ~51.2 % of GDP in 2025.  This provides an intuitive visual
@@ -293,25 +246,26 @@ def render(feats_df: pd.DataFrame, raw_df: pd.DataFrame) -> None:
     st.plotly_chart(fig_gauge, use_container_width=True, key='dashboard_gauge_market_share')
 
     # ---------------------------------------------------------------------
-    # Top sectors by number of listed companies (filtered)
-    # Recompute sector counts based on the filtered dataset so that users can
-    # identify which industries dominate within the selected sector/exchange.
-    if 'Sector' in filtered_feats_df.columns:
-        sector_counts = filtered_feats_df.groupby('Sector')['Ticker'].nunique().sort_values(ascending=False).head(5)
-        if not sector_counts.empty:
-            sector_labels = sector_counts.index.tolist()
-            sector_values = sector_counts.values.tolist()
-            fig_sector = go.Figure(go.Bar(x=sector_labels, y=sector_values,
-                                          marker_color='#3B82F6'))
-            fig_sector.update_layout(
-                title=("Top 5 ngành theo số công ty niêm yết" if lang == 'vi' else "Top 5 sectors by number of listed companies"),
-                xaxis_title=("Ngành" if lang == 'vi' else "Sector"),
-                yaxis_title=("Số lượng công ty" if lang == 'vi' else "Number of companies"),
-                height=350,
-            )
-            st.plotly_chart(fig_sector, use_container_width=True, key='dashboard_sector_bar')
+    # Top sectors by number of listed companies
+    # Many users are curious about which industries dominate the market.  We
+    # derive this information from the financial features dataset.  If the
+    # sector field is available, count the number of unique tickers per
+    # sector, sort descending and display the top five as a bar chart.
+    if 'Sector' in feats_df.columns:
+        sector_counts = feats_df.groupby('Sector')['Ticker'].nunique().sort_values(ascending=False).head(5)
+        sector_labels = sector_counts.index.tolist()
+        sector_values = sector_counts.values.tolist()
+        fig_sector = go.Figure(go.Bar(x=sector_labels, y=sector_values,
+                                      marker_color='#3B82F6'))
+        fig_sector.update_layout(
+            title=("Top 5 ngành theo số công ty niêm yết" if lang == 'vi' else "Top 5 sectors by number of listed companies"),
+            xaxis_title=("Ngành" if lang == 'vi' else "Sector"),
+            yaxis_title=("Số lượng công ty" if lang == 'vi' else "Number of companies"),
+            height=350,
+        )
+        st.plotly_chart(fig_sector, use_container_width=True, key='dashboard_sector_bar')
 
-    # Provide a brief narrative summarising the market based on the latest values in the filtered subset
+    # Provide a brief narrative summarising the market based on latest values
     rev_growth = np.nan
     np_growth = np.nan
     if len(summary) >= 2:
@@ -322,13 +276,13 @@ def render(feats_df: pd.DataFrame, raw_df: pd.DataFrame) -> None:
         rev_growth = ((curr_rev - prev_rev) / prev_rev) if prev_rev else np.nan
         np_growth = ((curr_np - prev_np) / prev_np) if prev_np else np.nan
     if lang == 'vi':
-        narrative = f"**Tổng quan:** Năm {int(latest_year)}, doanh thu trung bình của các doanh nghiệp trong phạm vi lựa chọn đạt {avg_rev[-1]:,.2f} tỷ đồng và lợi nhuận ròng trung bình {avg_np[-1]:,.2f} tỷ đồng."
+        narrative = f"**Tổng quan:** Năm {int(latest_year)}, doanh thu trung bình của các doanh nghiệp đạt {avg_rev[-1]:,.2f} tỷ đồng và lợi nhuận ròng trung bình {avg_np[-1]:,.2f} tỷ đồng."
         if not np.isnan(rev_growth):
             narrative += f" Doanh thu trung bình {'tăng' if rev_growth>=0 else 'giảm'} {abs(rev_growth)*100:.1f}% so với năm trước."
         if not np.isnan(np_growth):
             narrative += f" Lợi nhuận ròng trung bình {'tăng' if np_growth>=0 else 'giảm'} {abs(np_growth)*100:.1f}% so với năm trước."
     else:
-        narrative = f"**Overview:** In {int(latest_year)}, the average company revenue within the selected subset was {avg_rev[-1]:,.2f} bn VND and average net profit {avg_np[-1]:,.2f} bn VND."
+        narrative = f"**Overview:** In {int(latest_year)}, the average company revenue was {avg_rev[-1]:,.2f} bn VND and average net profit {avg_np[-1]:,.2f} bn VND."
         if not np.isnan(rev_growth):
             narrative += f" Average revenue {'increased' if rev_growth>=0 else 'decreased'} by {abs(rev_growth)*100:.1f}% from the previous year."
         if not np.isnan(np_growth):

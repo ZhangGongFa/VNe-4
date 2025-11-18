@@ -544,19 +544,20 @@ def render(feats_df: pd.DataFrame, raw_df: pd.DataFrame, ticker: str, year: int,
         # Persist currently selected model index in session state
         if 'pd_model_idx' not in st.session_state:
             st.session_state['pd_model_idx'] = 0
-        # Allow users to directly select a model via radio buttons
-        sel_model_radio = st.radio(
-            get_text("pd_model_selection", lang),
-            model_options,
-            index=st.session_state['pd_model_idx'],
-            horizontal=True,
-        )
-        # Update session state if radio selection differs
-        if sel_model_radio != model_options[st.session_state['pd_model_idx']]:
-            st.session_state['pd_model_idx'] = model_options.index(sel_model_radio)
-        # Determine current, previous and next models based solely on the radio selection.
+        # Display a label for the model selection
+        st.markdown(f"**{get_text('pd_model_selection', lang)}**")
+        # Render model selection using button‑style toggles instead of a radio group.  Each
+        # model is placed in its own column so that the buttons align horizontally.  When
+        # a button is clicked, update the selected model index in session state.  The
+        # currently selected model is indicated by appending an asterisk (*) to its label.
+        button_cols = st.columns(len(model_options))
+        for idx, mdl in enumerate(model_options):
+            label = f"{mdl}*" if st.session_state.get('pd_model_idx', 0) == idx else mdl
+            if button_cols[idx].button(label, key=f"pd_model_button_{idx}"):
+                st.session_state['pd_model_idx'] = idx
+        # Determine current, previous and next models based on the selected index.
         total_models = len(model_options)
-        sel_idx = st.session_state['pd_model_idx']
+        sel_idx = st.session_state.get('pd_model_idx', 0)
         prev_idx = (sel_idx - 1) % total_models
         next_idx = (sel_idx + 1) % total_models
         selected_model = model_options[sel_idx]
